@@ -19,6 +19,8 @@ Open AI Co-Scientist is an AI-powered system for generating, reviewing, ranking,
 A live demonstration can be accessed at: https://huggingface.co/spaces/liaoch/open-ai-co-scientist
 * Please note that this demo exclusively utilizes free models from OpenRouter.
 
+Demo of this fork, with **Swarm mode** and **Export results**: https://huggingface.co/spaces/sdajani/co-scientist-public-demo
+
 ## 🚀 Features
 
 - **Multi-Agent System:** Iteratively generates, reviews, ranks, and evolves research hypotheses using specialized agents (Generation, Reflection, Ranking, Evolution, Proximity, Meta-Review).
