@@ -36,7 +36,9 @@ current_research_goal: Optional[ResearchGoal] = None
 available_models: List[str] = []
 CONFIGURED_LLM_MODEL = config.get("llm_model", "")
 SAFE_FALLBACK_LLM_MODEL = CONFIGURED_LLM_MODEL or "-- Select Model --"
-CYCLE_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_CYCLE_TIMEOUT_SECONDS", "300"))
+CYCLE_TIMEOUT_SECONDS = int(
+    os.getenv("CO_SCIENTIST_CYCLE_TIMEOUT_SECONDS", "1200")
+)  # same as swarm: busy free models need retries
 CYCLE_PROGRESS_INTERVAL_SECONDS = 5
 SWARM_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_SWARM_TIMEOUT_SECONDS", "1200"))
 LAST_SWARM: Dict[str, Any] = {}
