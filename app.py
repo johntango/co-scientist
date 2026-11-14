@@ -12,6 +12,7 @@ from app.agents import SupervisorAgent
 
 # Import the existing app components
 from app.config import config
+from app.export import ideas_from_hypotheses, write_bundle
 from app.models import ContextMemory, ResearchGoal
 from app.run_store import delete_run, get_reports_dir, history_html, list_runs, report_file_url, save_run, write_report
 from app.swarm import SwarmCoScientist, format_swarm_results
@@ -35,6 +36,7 @@ SAFE_FALLBACK_LLM_MODEL = CONFIGURED_LLM_MODEL or "-- Select Model --"
 CYCLE_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_CYCLE_TIMEOUT_SECONDS", "300"))
 CYCLE_PROGRESS_INTERVAL_SECONDS = 5
 SWARM_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_SWARM_TIMEOUT_SECONDS", "1200"))
+LAST_SWARM: Dict[str, Any] = {}
 
 # Configure logging for Gradio
 logging.basicConfig(level=logging.INFO)
@@ -442,6 +444,8 @@ def run_swarm_with_progress(
         yield f"❌ Swarm failed: {result.get('error', 'no result')}", "", ""
         return
     res = result["value"]
+    LAST_SWARM.clear()
+    LAST_SWARM.update(res=res, goal=goal, model=model)
     html_out = format_swarm_results(res)
     status = f"✅ Swarm finished: {len(res['final'])} hypotheses ranked from {len(res['hypotheses'])} after {len(res['matches'])} debates."
     if res["errors"]:
@@ -461,6 +465,40 @@ def run_swarm_with_progress(
     )
     report_path = write_report(saved)
     yield f"{status}\nRun ID: {saved['run_id']}\nReport: {report_file_url(report_path)}", html_out, ""
+
+
+def export_bundle_zip(mode: str) -> Optional[str]:
+    """Export results of the latest run (.md, .html, .json, reviews, references); return the zip path."""
+    import datetime
+
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = get_reports_dir() / "bundles" / f"coscientist_{'swarm' if mode == 'Swarm' else 'single'}_{stamp}"
+    try:
+        if mode == "Swarm":
+            if not LAST_SWARM:
+                return None
+            res = LAST_SWARM["res"]
+            by = {h["id"]: h for h in res["hypotheses"]}
+            final = [by[i] for i in res["final"]]
+            ideas = ideas_from_hypotheses(final, res["matches"])
+            return write_bundle(
+                ideas, str(out), out.name, LAST_SWARM["goal"], mode="swarm", model=LAST_SWARM.get("model") or ""
+            )
+        if not current_research_goal or not global_context.hypotheses:
+            return None
+        hyps = [h.to_dict() for h in global_context.hypotheses.values()]
+        ideas = ideas_from_hypotheses(hyps)
+        return write_bundle(
+            ideas,
+            str(out),
+            out.name,
+            current_research_goal.description,
+            mode="single",
+            model=current_research_goal.llm_model or "",
+        )
+    except Exception as e:
+        logger.error("Bundle export failed: %s", e, exc_info=True)
+        return None
 
 
 def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
@@ -870,6 +908,12 @@ def create_gradio_interface():
                             minimum=1, maximum=4, value=2, step=1, label="Debate Rounds per Round"
                         )
 
+                export_checkbox = gr.Checkbox(
+                    value=True,
+                    label="Export results",
+                    info="Download the ranked ideas as .html, .md and .json, with reviews and references.",
+                )
+
                 # Single action button
                 with gr.Row():
                     run_cycle_btn = gr.Button("🔄 Run Cycle", variant="primary")
@@ -881,6 +925,8 @@ def create_gradio_interface():
                     interactive=False,
                     lines=3,
                 )
+
+                bundle_file = gr.File(label="Results (.zip)", interactive=False)
 
             with gr.Column(scale=1):
                 # Instructions
@@ -942,6 +988,7 @@ def create_gradio_interface():
             per_worker=3,
             rounds=1,
             matches=2,
+            export=True,
         ):
             if mode == "Swarm":
                 if not (research_goal or "").strip():
@@ -951,6 +998,7 @@ def create_gradio_interface():
                         "",
                         history_html(),
                         gr.update(choices=history_run_choices(), value=None),
+                        None,
                     )
                     return
                 for status, results, references in run_swarm_with_progress(
@@ -962,6 +1010,16 @@ def create_gradio_interface():
                         references,
                         history_html(),
                         gr.update(choices=history_run_choices(), value=None),
+                        None,
+                    )
+                if export:
+                    yield (
+                        status,
+                        results,
+                        references,
+                        history_html(),
+                        gr.update(choices=history_run_choices(), value=None),
+                        export_bundle_zip("Swarm"),
                     )
                 return
             # Set research goal
@@ -980,6 +1038,7 @@ def create_gradio_interface():
                 "",
                 history_html(),
                 gr.update(choices=history_run_choices(), value=None),
+                None,
             )
             for status, results, references in run_cycle_with_progress():
                 yield (
@@ -988,6 +1047,16 @@ def create_gradio_interface():
                     references,
                     history_html(),
                     gr.update(choices=history_run_choices(), value=None),
+                    None,
+                )
+            if export:
+                yield (
+                    f"{status_msg}\n\n{status}",
+                    results,
+                    references,
+                    history_html(),
+                    gr.update(choices=history_run_choices(), value=None),
+                    export_bundle_zip("Single co-scientist"),
                 )
 
         run_cycle_btn.click(
@@ -1005,8 +1074,16 @@ def create_gradio_interface():
                 swarm_per_worker,
                 swarm_rounds,
                 swarm_matches,
+                export_checkbox,
             ],
-            outputs=[status_output, results_output, references_output, history_output, delete_run_dropdown],
+            outputs=[
+                status_output,
+                results_output,
+                references_output,
+                history_output,
+                delete_run_dropdown,
+                bundle_file,
+            ],
         )
 
         demo.load(
