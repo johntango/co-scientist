@@ -12,14 +12,28 @@ def fake_llm(responses):
     def call(prompt, temperature=0.7, model=None):
         calls.append(prompt)
         if prompt.startswith("You are the orchestrator"):
-            return json.dumps([{"name": f"D{i}", "objective": f"direction {i}", "data_types": "x", "boundaries": "y"} for i in range(2)])
+            return json.dumps(
+                [
+                    {"name": f"D{i}", "objective": f"direction {i}", "data_types": "x", "boundaries": "y"}
+                    for i in range(2)
+                ]
+            )
         if "You are worker" in prompt:
             w = 1 if "worker 1 of" in prompt else 2
-            return json.dumps([{"title": f"W{w} idea {k}", "text": f"Worker {w} hypothesis number {k} about topic {w * 10 + k}."} for k in range(3)])
+            return json.dumps(
+                [
+                    {"title": f"W{w} idea {k}", "text": f"Worker {w} hypothesis number {k} about topic {w * 10 + k}."}
+                    for k in range(3)
+                ]
+            )
         if prompt.startswith("You are a panel"):
-            return responses.get("judge", json.dumps({"winner": "A", "reason": "A is sharper", "against_B": "B is vague"}))
+            return responses.get(
+                "judge", json.dumps({"winner": "A", "reason": "A is sharper", "against_B": "B is vague"})
+            )
         if prompt.startswith("You are the meta-reviewer"):
-            return json.dumps({"critique": ["numbers unsupported"], "strengths": ["clear"], "guidance": ["cite the file"]})
+            return json.dumps(
+                {"critique": ["numbers unsupported"], "strengths": ["clear"], "guidance": ["cite the file"]}
+            )
         if "You are the evolution agent" in prompt:
             return json.dumps({"title": "Improved idea", "text": "An improved hypothesis with a sharper design."})
         return "{}"
@@ -30,11 +44,29 @@ def fake_llm(responses):
 def run(monkeypatch, **kw):
     call, calls = fake_llm(kw.pop("responses", {}))
     monkeypatch.setattr(swarm, "call_llm", call)
-    monkeypatch.setattr(swarm, "call_llm_for_reflection",
-                        lambda text, temperature=0.5, model=None: {"novelty_review": "HIGH", "feasibility_review": "MEDIUM", "comment": "ok", "references": ["10.1000/x"]})
+    monkeypatch.setattr(
+        swarm,
+        "call_llm_for_reflection",
+        lambda text, temperature=0.5, model=None: {
+            "novelty_review": "HIGH",
+            "feasibility_review": "MEDIUM",
+            "comment": "ok",
+            "references": ["10.1000/x"],
+        },
+    )
     monkeypatch.setattr(swarm, "similarity_score", lambda a, b: 1.0 if a.split()[:3] == b.split()[:3] else 0.1)
-    s = swarm.SwarmCoScientist("Find hypotheses.", model="m", n_workers=2, per_worker=3, rounds=2, matches_per_round=2,
-                               top_k_evolve=2, final_k=4, parallel=2, **kw)
+    s = swarm.SwarmCoScientist(
+        "Find hypotheses.",
+        model="m",
+        n_workers=2,
+        per_worker=3,
+        rounds=2,
+        matches_per_round=2,
+        top_k_evolve=2,
+        final_k=4,
+        parallel=2,
+        **kw,
+    )
     return s.run(), calls
 
 
@@ -44,7 +76,7 @@ def test_swarm_runs_all_routines(monkeypatch):
     assert {"orchestrator", "worker1", "worker2", "reflection", "judge", "meta_review", "evolution"} <= roles
     assert len(res["lenses"]) == 2
     assert len(res["final"]) == 4
-    assert any(h["parent_ids"] for h in res["hypotheses"])           # evolved hypotheses carry their parent
+    assert any(h["parent_ids"] for h in res["hypotheses"])  # evolved hypotheses carry their parent
     assert len(res["meta_reviews"]) == 2
 
 
@@ -70,8 +102,8 @@ def test_duplicates_are_merged_not_ranked(monkeypatch):
 
 
 def test_parse_json_tolerates_fences_and_prose():
-    assert swarm.parse_json("```json\n[{\"a\": 1}]\n```", list) == [{"a": 1}]
-    assert swarm.parse_json("Here you go: {\"winner\": \"B\"} thanks", dict) == {"winner": "B"}
+    assert swarm.parse_json('```json\n[{"a": 1}]\n```', list) == [{"a": 1}]
+    assert swarm.parse_json('Here you go: {"winner": "B"} thanks', dict) == {"winner": "B"}
     assert swarm.parse_json("nothing", dict) is None
 
 

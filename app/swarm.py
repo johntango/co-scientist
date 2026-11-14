@@ -31,10 +31,26 @@ from .agents import call_llm_for_reflection
 from .utils import call_llm, logger, similarity_score
 
 DEFAULT_LENSES = [
-    {"name": "Mechanism", "objective": "Hypotheses about biological or physiological mechanisms.", "boundaries": "Avoid purely methodological ideas."},
-    {"name": "Measurement", "objective": "Hypotheses about what a new measurement or data type reveals that others cannot.", "boundaries": "Each must hinge on the measurement itself."},
-    {"name": "Population", "objective": "Hypotheses about who is affected, when, and how outcomes differ across groups.", "boundaries": "Avoid single-mechanism ideas."},
-    {"name": "Contrarian", "objective": "Hypotheses that challenge an accepted finding or use the data in an unexpected way.", "boundaries": "Must still be testable with the stated data."},
+    {
+        "name": "Mechanism",
+        "objective": "Hypotheses about biological or physiological mechanisms.",
+        "boundaries": "Avoid purely methodological ideas.",
+    },
+    {
+        "name": "Measurement",
+        "objective": "Hypotheses about what a new measurement or data type reveals that others cannot.",
+        "boundaries": "Each must hinge on the measurement itself.",
+    },
+    {
+        "name": "Population",
+        "objective": "Hypotheses about who is affected, when, and how outcomes differ across groups.",
+        "boundaries": "Avoid single-mechanism ideas.",
+    },
+    {
+        "name": "Contrarian",
+        "objective": "Hypotheses that challenge an accepted finding or use the data in an unexpected way.",
+        "boundaries": "Must still be testable with the stated data.",
+    },
 ]
 
 
@@ -119,8 +135,17 @@ class SwarmCoScientist:
     def llm(self, role: str, prompt: str, temperature: float) -> str:
         t0 = time.time()
         out = call_llm(prompt, temperature=temperature, model=self.model)
-        self.trace.append(dict(role=role, seconds=round(time.time() - t0, 1), prompt_chars=len(prompt), response_chars=len(out or ""),
-                               error=(out or "").startswith("Error:"), prompt=prompt, response=out))
+        self.trace.append(
+            dict(
+                role=role,
+                seconds=round(time.time() - t0, 1),
+                prompt_chars=len(prompt),
+                response_chars=len(out or ""),
+                error=(out or "").startswith("Error:"),
+                prompt=prompt,
+                response=out,
+            )
+        )
         if (out or "").startswith("Error:"):
             self.errors.append(f"{role}: {out[:300]}")
         return out or ""
@@ -168,9 +193,23 @@ class SwarmCoScientist:
         out = []
         for d in data:
             if isinstance(d, dict) and d.get("title") and d.get("text"):
-                out.append(dict(id=self.new_id("S"), title=as_text(d["title"]), text=as_text(d["text"]), worker=w + 1,
-                                lens=lens.get("name", ""), round=1, parent_ids=[], elo=1200.0, wins=0, losses=0,
-                                review_comments=[], references=[], active=True))
+                out.append(
+                    dict(
+                        id=self.new_id("S"),
+                        title=as_text(d["title"]),
+                        text=as_text(d["text"]),
+                        worker=w + 1,
+                        lens=lens.get("name", ""),
+                        round=1,
+                        parent_ids=[],
+                        elo=1200.0,
+                        wins=0,
+                        losses=0,
+                        review_comments=[],
+                        references=[],
+                        active=True,
+                    )
+                )
         if not out:
             self.errors.append(f"worker{w + 1}: no parsable hypotheses")
         return out
@@ -194,15 +233,24 @@ class SwarmCoScientist:
     def reflect(self, h: Dict[str, Any]) -> None:
         t0 = time.time()
         r = call_llm_for_reflection(h["text"], temperature=0.5, model=self.model)
-        self.trace.append(dict(role="reflection", seconds=round(time.time() - t0, 1), prompt_chars=len(h["text"]), response_chars=len(json.dumps(r)),
-                               error=str(r.get("comment", "")).startswith(("Could not parse", "LLM review failed")), prompt="", response=json.dumps(r)))
+        self.trace.append(
+            dict(
+                role="reflection",
+                seconds=round(time.time() - t0, 1),
+                prompt_chars=len(h["text"]),
+                response_chars=len(json.dumps(r)),
+                error=str(r.get("comment", "")).startswith(("Could not parse", "LLM review failed")),
+                prompt="",
+                response=json.dumps(r),
+            )
+        )
         h["novelty_review"], h["feasibility_review"] = r.get("novelty_review"), r.get("feasibility_review")
         h["review_comments"].append(as_text(r.get("comment", "")))
         h["references"] += [as_text(x) for x in r.get("references", []) if as_text(x) not in h["references"]]
 
     def judge(self, pair) -> Dict[str, Any]:
         a, b = pair
-        if self.rng.random() < 0.5:                # randomize position to limit order bias
+        if self.rng.random() < 0.5:  # randomize position to limit order bias
             a, b = b, a
         prompt = (
             "You are a panel of expert reviewers in a hypothesis tournament. Compare two hypotheses for the research goal.\n"
@@ -216,10 +264,16 @@ class SwarmCoScientist:
         d = parse_json(self.llm("judge", prompt, self.judge_t), dict) or {}
         w = str(d.get("winner", "")).strip().upper()[:1]
         if w not in ("A", "B"):
-            w = self.rng.choice(["A", "B"]); d["reason"] = "judge reply not parsable: random winner"
+            w = self.rng.choice(["A", "B"])
+            d["reason"] = "judge reply not parsable: random winner"
             self.errors.append("judge: unparsable verdict")
         win, lose = (a, b) if w == "A" else (b, a)
-        return dict(winner=win["id"], loser=lose["id"], reason=as_text(d.get("reason", "")), against_loser=as_text(d.get(f"against_{'B' if w == 'A' else 'A'}", "")))
+        return dict(
+            winner=win["id"],
+            loser=lose["id"],
+            reason=as_text(d.get("reason", "")),
+            against_loser=as_text(d.get(f"against_{'B' if w == 'A' else 'A'}", "")),
+        )
 
     def tournament(self, round_no: int) -> None:
         """Swiss-style: each round pairs neighbors in the current Elo order; matches_per_round rounds."""
@@ -231,20 +285,27 @@ class SwarmCoScientist:
             for res in self.pmap(self.judge, pairs):
                 win, lose = self.hyps[res["winner"]], self.hyps[res["loser"]]
                 ea = expected(win["elo"], lose["elo"])
-                win["elo"] += self.k * (1 - ea); lose["elo"] -= self.k * (1 - ea)
-                win["wins"] += 1; lose["losses"] += 1
+                win["elo"] += self.k * (1 - ea)
+                lose["elo"] -= self.k * (1 - ea)
+                win["wins"] += 1
+                lose["losses"] += 1
                 self.matches.append(dict(res, round=round_no, match=m + 1))
 
     def meta_review(self, round_no: int) -> Dict[str, Any]:
         act = sorted([h for h in self.hyps.values() if h["active"]], key=lambda h: -h["elo"])
-        lines = [f"#{k + 1} (Elo {h['elo']:.0f}) {h['title']} | review: {h['review_comments'][-1][:300] if h['review_comments'] else ''}" for k, h in enumerate(act)]
+        lines = [
+            f"#{k + 1} (Elo {h['elo']:.0f}) {h['title']} | review: {h['review_comments'][-1][:300] if h['review_comments'] else ''}"
+            for k, h in enumerate(act)
+        ]
         reasons = [m["reason"][:250] for m in self.matches if m["round"] == round_no][:30]
         prompt = (
             "You are the meta-reviewer of a co-scientist swarm. Read the ranked hypotheses, their reviews and the reasons "
             "judges gave in the tournament. Identify recurring weaknesses (for example wrong data names, unsupported cohort "
             "sizes, weak designs, missing controls) and strengths, and give concrete guidance for improving the top hypotheses.\n\n"
-            f"RESEARCH GOAL (summary):\n{self.goal_brief(3000)}\n\nRANKED HYPOTHESES:\n" + "\n".join(lines[:40])
-            + "\n\nJUDGES' REASONS:\n" + "\n".join(f"- {r}" for r in reasons)
+            f"RESEARCH GOAL (summary):\n{self.goal_brief(3000)}\n\nRANKED HYPOTHESES:\n"
+            + "\n".join(lines[:40])
+            + "\n\nJUDGES' REASONS:\n"
+            + "\n".join(f"- {r}" for r in reasons)
             + '\n\nReturn only a JSON object: {"critique": ["..."], "strengths": ["..."], "guidance": ["..."]}'
         )
         d = parse_json(self.llm("meta_review", prompt, 0.4), dict) or {"critique": [], "strengths": [], "guidance": []}
@@ -270,8 +331,21 @@ class SwarmCoScientist:
         if not d or not d.get("text"):
             self.errors.append(f"evolution of {h['id']}: no parsable rewrite")
             return None
-        return dict(id=self.new_id("V"), title=as_text(d.get("title") or h["title"]), text=as_text(d["text"]), worker=h["worker"], lens=h["lens"],
-                    round=h["round"] + 1, parent_ids=[h["id"]], elo=h["elo"], wins=0, losses=0, review_comments=[], references=[], active=True)
+        return dict(
+            id=self.new_id("V"),
+            title=as_text(d.get("title") or h["title"]),
+            text=as_text(d["text"]),
+            worker=h["worker"],
+            lens=h["lens"],
+            round=h["round"] + 1,
+            parent_ids=[h["id"]],
+            elo=h["elo"],
+            wins=0,
+            losses=0,
+            review_comments=[],
+            references=[],
+            active=True,
+        )
 
     # ------------------------------------------------------------------ the run
     def run(self) -> Dict[str, Any]:
@@ -290,7 +364,9 @@ class SwarmCoScientist:
             self.tournament(r)
             meta = self.meta_review(r)
             if r < self.rounds:
-                top = sorted([h for h in self.hyps.values() if h["active"]], key=lambda h: -h["elo"])[: self.top_k_evolve]
+                top = sorted([h for h in self.hyps.values() if h["active"]], key=lambda h: -h["elo"])[
+                    : self.top_k_evolve
+                ]
                 self.progress(f"round {r}: evolving the top {len(top)}")
                 new = [x for x in self.pmap(self.evolve, [(h, meta.get("guidance", [])) for h in top]) if x]
                 for x in new:
@@ -299,11 +375,26 @@ class SwarmCoScientist:
         final = sorted([h for h in self.hyps.values() if h["active"]], key=lambda h: -h["elo"])[: self.final_k]
         self.progress(f"done: {len(self.trace)} LLM calls in {time.time() - t0:.0f}s")
         return dict(
-            settings=dict(model=self.model, n_workers=self.n_workers, per_worker=self.per_worker, rounds=self.rounds,
-                          matches_per_round=self.matches_per_round, top_k_evolve=self.top_k_evolve, final_k=self.final_k,
-                          dedupe_threshold=self.dedupe_threshold, parallel=self.parallel, k_factor=self.k),
-            lenses=lenses, hypotheses=list(self.hyps.values()), final=[h["id"] for h in final], merged=self.merged,
-            matches=self.matches, meta_reviews=self.meta_reviews, errors=self.errors, seconds=round(time.time() - t0, 1),
+            settings=dict(
+                model=self.model,
+                n_workers=self.n_workers,
+                per_worker=self.per_worker,
+                rounds=self.rounds,
+                matches_per_round=self.matches_per_round,
+                top_k_evolve=self.top_k_evolve,
+                final_k=self.final_k,
+                dedupe_threshold=self.dedupe_threshold,
+                parallel=self.parallel,
+                k_factor=self.k,
+            ),
+            lenses=lenses,
+            hypotheses=list(self.hyps.values()),
+            final=[h["id"] for h in final],
+            merged=self.merged,
+            matches=self.matches,
+            meta_reviews=self.meta_reviews,
+            errors=self.errors,
+            seconds=round(time.time() - t0, 1),
             trace=self.trace,
         )
 
@@ -314,18 +405,36 @@ def format_swarm_results(result: Dict[str, Any]) -> str:
 
     by = {h["id"]: h for h in result["hypotheses"]}
     s = result["settings"]
-    out = [f"<h2>🐝 Swarm result</h2><p>{s['n_workers']} workers × {s['per_worker']} hypotheses, {s['rounds']} rounds, "
-           f"{len(result['matches'])} debates, {len(result['trace'])} LLM calls, {result['seconds']:.0f} s.</p>"]
+    out = [
+        f"<h2>🐝 Swarm result</h2><p>{s['n_workers']} workers × {s['per_worker']} hypotheses, {s['rounds']} rounds, "
+        f"{len(result['matches'])} debates, {len(result['trace'])} LLM calls, {result['seconds']:.0f} s.</p>"
+    ]
     if result["errors"]:
-        out.append("<details><summary>⚠️ %d problems</summary><ul>%s</ul></details>" % (len(result["errors"]), "".join(f"<li>{H.escape(e)}</li>" for e in result["errors"])))
-    out.append("<h3>Directions</h3><ol>" + "".join(f"<li><b>{H.escape(x.get('name', ''))}</b>: {H.escape(x.get('objective', ''))}</li>" for x in result["lenses"]) + "</ol>")
+        out.append(
+            "<details><summary>⚠️ %d problems</summary><ul>%s</ul></details>"
+            % (len(result["errors"]), "".join(f"<li>{H.escape(e)}</li>" for e in result["errors"]))
+        )
+    out.append(
+        "<h3>Directions</h3><ol>"
+        + "".join(
+            f"<li><b>{H.escape(x.get('name', ''))}</b>: {H.escape(x.get('objective', ''))}</li>"
+            for x in result["lenses"]
+        )
+        + "</ol>"
+    )
     out.append("<h3>Final ranking</h3>")
     for k, hid in enumerate(result["final"], 1):
         h = by[hid]
-        out.append(f"<details><summary><b>#{k}</b> {H.escape(h['title'])} (Elo {h['elo']:.0f}; {h['wins']}–{h['losses']}; worker {h['worker']}"
-                   f"{'; evolved from ' + ', '.join(h['parent_ids']) if h['parent_ids'] else ''})</summary>"
-                   f"<pre style='white-space:pre-wrap'>{H.escape(h['text'])}</pre>"
-                   f"<p><i>Review:</i> {H.escape(' | '.join(h['review_comments']))}</p></details>")
+        out.append(
+            f"<details><summary><b>#{k}</b> {H.escape(h['title'])} (Elo {h['elo']:.0f}; {h['wins']}–{h['losses']}; worker {h['worker']}"
+            f"{'; evolved from ' + ', '.join(h['parent_ids']) if h['parent_ids'] else ''})</summary>"
+            f"<pre style='white-space:pre-wrap'>{H.escape(h['text'])}</pre>"
+            f"<p><i>Review:</i> {H.escape(' | '.join(h['review_comments']))}</p></details>"
+        )
     for m in result["meta_reviews"]:
-        out.append(f"<h3>Meta-review, round {m['round']}</h3><ul>" + "".join(f"<li>{H.escape(x)}</li>" for x in m.get("critique", []) + m.get("guidance", [])) + "</ul>")
+        out.append(
+            f"<h3>Meta-review, round {m['round']}</h3><ul>"
+            + "".join(f"<li>{H.escape(x)}</li>" for x in m.get("critique", []) + m.get("guidance", []))
+            + "</ul>"
+        )
     return "\n".join(out)

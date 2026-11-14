@@ -97,6 +97,22 @@ The system uses a multi-agent approach:
 5. **Proximity Agent:** Analyzes similarity between hypotheses.
 6. **Meta-Review Agent:** Provides overall critique and suggests next steps.
 
+## 🐝 Swarm Mode
+
+Choose **Mode → Swarm** in the UI (or use `app.swarm.SwarmCoScientist` from Python) to run a swarm of co-scientists on one goal:
+
+1. **Orchestrator** splits the goal into distinct research directions, each with an objective and boundaries (orchestrator-worker pattern).
+2. **Workers** (one per direction) generate hypotheses in parallel.
+3. **Proximity** merges near-duplicates (sentence-embedding similarity) before ranking.
+4. **Reflection** reviews every hypothesis (novelty, feasibility, comment, references).
+5. **Tournament**: an LLM judge debates pairs (arguments for and against each) and Elo is updated; Swiss pairing by current rating.
+6. **Meta-review** reads the ranking, reviews and debate reasons and writes guidance.
+7. **Evolution** rewrites the top hypotheses from their critiques and the guidance; they re-enter the next round.
+
+The final ranking, every debate, merge and LLM call are returned (and saved with the run). The single-cycle mode is unchanged.
+Design references: Google's AI co-scientist (tournament, evolution, meta-review), OpenAI Swarm / Agents SDK (routines and handoffs),
+Anthropic's multi-agent research system (orchestrator-worker), and multi-agent debate (Du et al., 2023).
+
 ## 📚 Literature Integration
 
 - Automatically searches arXiv for papers related to your research goal.

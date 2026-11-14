@@ -14,6 +14,7 @@ from app.agents import SupervisorAgent
 from app.config import config
 from app.models import ContextMemory, ResearchGoal
 from app.run_store import delete_run, get_reports_dir, history_html, list_runs, report_file_url, save_run, write_report
+from app.swarm import SwarmCoScientist, format_swarm_results
 from app.tools.arxiv_search import ArxivSearchTool
 from app.utils import (
     classify_llm_error,
@@ -33,6 +34,7 @@ CONFIGURED_LLM_MODEL = config.get("llm_model", "")
 SAFE_FALLBACK_LLM_MODEL = CONFIGURED_LLM_MODEL or "-- Select Model --"
 CYCLE_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_CYCLE_TIMEOUT_SECONDS", "300"))
 CYCLE_PROGRESS_INTERVAL_SECONDS = 5
+SWARM_TIMEOUT_SECONDS = int(os.getenv("CO_SCIENTIST_SWARM_TIMEOUT_SECONDS", "1200"))
 
 # Configure logging for Gradio
 logging.basicConfig(level=logging.INFO)
@@ -381,6 +383,84 @@ def run_cycle_with_progress(
     if current_research_goal is run_goal:
         global_context = run_context
     yield persist_cycle_result(run_goal, cycle_result)
+
+
+def run_swarm_with_progress(
+    goal: str,
+    llm_model: Optional[str],
+    n_workers: int,
+    per_worker: int,
+    rounds: int,
+    matches: int,
+    timeout_seconds: int = SWARM_TIMEOUT_SECONDS,
+    poll_seconds: float = CYCLE_PROGRESS_INTERVAL_SECONDS,
+):
+    """Run swarm mode in the background and stream its progress until done or timed out."""
+    model = llm_model if llm_model and llm_model != "-- Select Model --" else None
+    log: List[str] = []
+    result: Dict[str, Any] = {}
+    swarm = SwarmCoScientist(
+        goal,
+        model=model,
+        n_workers=int(n_workers),
+        per_worker=int(per_worker),
+        rounds=int(rounds),
+        matches_per_round=int(matches),
+        top_k_evolve=max(1, min(3, int(n_workers) * int(per_worker) // 2)),
+        final_k=min(10, int(n_workers) * int(per_worker)),
+        parallel=min(4, int(n_workers)),
+        progress=log.append,
+    )
+
+    def worker():
+        try:
+            result["value"] = swarm.run()
+        except Exception as e:  # surface the cause instead of a silent empty panel
+            logger.error("Swarm run failed: %s", e, exc_info=True)
+            result["error"] = str(e)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    started = time.monotonic()
+    while thread.is_alive():
+        elapsed = time.monotonic() - started
+        if elapsed >= timeout_seconds:
+            yield (
+                f"⚠️ Swarm stopped waiting after {format_timeout_duration(timeout_seconds)}.",
+                timeout_results_html(timeout_seconds),
+                "",
+            )
+            return
+        steps = "\n".join(log[-4:])
+        yield (
+            f"⏳ Swarm running ({format_timeout_duration(elapsed)}, {len(swarm.trace)} LLM calls so far)\n{steps}",
+            "<p>Swarm is running. Results appear when the tournament ends.</p>",
+            "",
+        )
+        thread.join(timeout=min(poll_seconds, max(timeout_seconds - elapsed, 0.1)))
+    if "error" in result or "value" not in result:
+        yield f"❌ Swarm failed: {result.get('error', 'no result')}", "", ""
+        return
+    res = result["value"]
+    html_out = format_swarm_results(res)
+    status = f"✅ Swarm finished: {len(res['final'])} hypotheses ranked from {len(res['hypotheses'])} after {len(res['matches'])} debates."
+    if res["errors"]:
+        status += f" {len(res['errors'])} problems (see results)."
+    saved = save_run(
+        research_goal=ResearchGoal(description=goal, llm_model=model),
+        cycle_details={
+            "iteration": 1,
+            "mode": "swarm",
+            "steps": {},
+            "swarm": {k: v for k, v in res.items() if k != "trace"},
+        },
+        status=status,
+        references_html="",
+        results_html=html_out,
+        log_file="",
+    )
+    report_path = write_report(saved)
+    yield f"{status}\nRun ID: {saved['run_id']}\nReport: {report_file_url(report_path)}", html_out, ""
 
 
 def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
@@ -770,6 +850,26 @@ def create_gradio_interface():
                         minimum=1, maximum=100, value=32, step=1, label="Elo K-Factor (Ranking Sensitivity)"
                     )
 
+                mode_radio = gr.Radio(
+                    choices=["Single co-scientist", "Swarm"],
+                    value="Single co-scientist",
+                    label="Mode",
+                    info="Swarm: an orchestrator splits the goal, parallel workers generate, an LLM judge ranks by pairwise debate, the top ideas are rewritten from their critiques.",
+                )
+                with gr.Accordion("🐝 Swarm Settings", open=False):
+                    with gr.Row():
+                        swarm_workers = gr.Slider(minimum=2, maximum=6, value=3, step=1, label="Workers")
+                        swarm_per_worker = gr.Slider(
+                            minimum=1, maximum=10, value=3, step=1, label="Hypotheses per Worker"
+                        )
+                    with gr.Row():
+                        swarm_rounds = gr.Slider(
+                            minimum=1, maximum=3, value=1, step=1, label="Rounds (evolution between rounds)"
+                        )
+                        swarm_matches = gr.Slider(
+                            minimum=1, maximum=4, value=2, step=1, label="Debate Rounds per Round"
+                        )
+
                 # Single action button
                 with gr.Row():
                     run_cycle_btn = gr.Button("🔄 Run Cycle", variant="primary")
@@ -830,8 +930,40 @@ def create_gradio_interface():
 
         # Event handler: single button sets research goal and runs cycle
         def run_full_cycle(
-            research_goal, llm_model, num_hypotheses, generation_temp, reflection_temp, elo_k_factor, top_k_hypotheses
+            research_goal,
+            llm_model,
+            num_hypotheses,
+            generation_temp,
+            reflection_temp,
+            elo_k_factor,
+            top_k_hypotheses,
+            mode="Single co-scientist",
+            workers=3,
+            per_worker=3,
+            rounds=1,
+            matches=2,
         ):
+            if mode == "Swarm":
+                if not (research_goal or "").strip():
+                    yield (
+                        "❌ Error: Please enter a research goal.",
+                        "",
+                        "",
+                        history_html(),
+                        gr.update(choices=history_run_choices(), value=None),
+                    )
+                    return
+                for status, results, references in run_swarm_with_progress(
+                    research_goal.strip(), llm_model, workers, per_worker, rounds, matches
+                ):
+                    yield (
+                        status,
+                        results,
+                        references,
+                        history_html(),
+                        gr.update(choices=history_run_choices(), value=None),
+                    )
+                return
             # Set research goal
             status_msg, _ = set_research_goal(
                 research_goal,
@@ -868,6 +1000,11 @@ def create_gradio_interface():
                 reflection_temp,
                 elo_k_factor,
                 top_k_hypotheses,
+                mode_radio,
+                swarm_workers,
+                swarm_per_worker,
+                swarm_rounds,
+                swarm_matches,
             ],
             outputs=[status_output, results_output, references_output, history_output, delete_run_dropdown],
         )
