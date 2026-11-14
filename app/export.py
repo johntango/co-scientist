@@ -45,6 +45,13 @@ CSS = """<style>
  blockquote{border-left:4px solid #dadce0;margin:0;padding:2px 14px;color:#5f6368}
  hr{border:0;border-top:1px solid #e8eaed;margin:28px 0}
  .badge{display:inline-block;background:#e8f0fe;color:#174ea6;border-radius:12px;padding:1px 10px;margin-right:6px;font-size:0.85em}
+ @media (prefers-color-scheme: dark){
+  body{color:#e8eaed;background:#121417} h1{border-bottom-color:#3c4043} h2,summary{color:#8ab4f8}
+  .meta{color:#9aa0a6} .meta b{color:#e8eaed} a{color:#8ab4f8}
+  th,td{border-color:#3c4043} th{background:#202124} code{background:#2a2c30} pre{background:#1b1d21}
+  details{background:#1b1d21;border-color:#3c4043} blockquote{border-left-color:#3c4043;color:#9aa0a6} hr{border-top-color:#3c4043}
+  .badge{background:#1f3a5f;color:#d2e3fc}
+ }
 </style>
 <script>window.MathJax={tex:{inlineMath:[['\\\\(','\\\\)'],['$','$']],displayMath:[['\\\\[','\\\\]'],['$$','$$']]}};</script>
 <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>"""

@@ -308,7 +308,7 @@ def format_timeout_duration(timeout_seconds: float) -> str:
 def timeout_results_html(timeout_seconds: float) -> str:
     timeout_duration = format_timeout_duration(timeout_seconds)
     return f"""
-    <div style="margin: 20px 0; padding: 15px; border: 2px solid #e67e22; border-radius: 8px; background-color: #fff8ee;">
+    <div style="margin: 20px 0; padding: 15px; border: 2px solid #e67e22; border-radius: 8px; background-color: rgba(230, 126, 34, 0.12); color: inherit;">
         <h3>Cycle stopped at the time limit</h3>
         <p>The run exceeded the {timeout_duration} upper limit before the app received a completed cycle.</p>
         <p>Try fewer hypotheses, a different model, or a later retry if the model provider is slow.</p>
@@ -516,7 +516,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
             category = classify_llm_error(e)
             items += f"<li><strong>{html_lib.escape(category)}:</strong> {html_lib.escape(str(e))}</li>"
         html += f"""
-        <div style="margin: 20px 0; padding: 15px; border: 2px solid #e74c3c; border-radius: 8px; background-color: #fff5f5;">
+        <div style="margin: 20px 0; padding: 15px; border: 2px solid #e74c3c; border-radius: 8px; background-color: rgba(231, 76, 60, 0.12); color: inherit;">
             <h3>⚠️ Generation could not complete</h3>
             <p>The model/API reported the following, so some or all hypotheses were not generated:</p>
             <ul style="color: #c0392b;">{items}</ul>
@@ -543,7 +543,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
             <summary style="font-weight: bold; font-size: 1.1em; cursor: pointer; padding: 5px;">
                 {step_title}
             </summary>
-            <div style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+            <div style="margin-top: 10px; padding: 10px; background-color: rgba(127, 127, 127, 0.10); color: inherit; border-radius: 5px;">
         """
 
         # Step-specific content
@@ -726,7 +726,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
             final_hypotheses = sorted(final_hypotheses, key=lambda h: h.get("id", ""))
 
         html += """
-        <div style="margin: 20px 0; padding: 15px; border: 2px solid #28a745; border-radius: 8px; background-color: #f8fff8;">
+        <div style="margin: 20px 0; padding: 15px; border: 2px solid #28a745; border-radius: 8px; background-color: rgba(40, 167, 69, 0.12); color: inherit;">
             <h3>🏆 Final Rankings - Top Hypotheses</h3>
         """
         if final_step not in ranking_steps:
@@ -746,7 +746,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
         for i, hypo in enumerate(final_hypotheses[:10]):  # Show top 10
             rank_color = "#28a745" if i < 3 else "#17a2b8" if i < 6 else "#6c757d"
             html += f"""
-            <div style="border-left: 4px solid {rank_color}; padding: 15px; margin: 10px 0; background-color: white; border-radius: 5px;">
+            <div style="border-left: 4px solid {rank_color}; padding: 15px; margin: 10px 0; background-color: rgba(127, 127, 127, 0.10); color: inherit; border-radius: 5px;">
                 <h4>#{i + 1}: {hypo.get("title", "Untitled")}</h4>
                 <p><strong>ID:</strong> {hypo.get("id", "Unknown")} | 
                    <strong>Elo Score:</strong> {hypo.get("elo_score", 0):.2f}</p>
@@ -767,7 +767,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
         else:
             no_rank_msg = "No hypotheses available for final ranking. This may indicate an error in the workflow."
         html += f"""
-        <div style="margin: 20px 0; padding: 15px; border: 2px solid #e74c3c; border-radius: 8px; background-color: #fff5f5;">
+        <div style="margin: 20px 0; padding: 15px; border: 2px solid #e74c3c; border-radius: 8px; background-color: rgba(231, 76, 60, 0.12); color: inherit;">
             <h3>🏆 Final Rankings - Top Hypotheses</h3>
             <p style="color: #e74c3c;">{no_rank_msg}</p>
         </div>
@@ -793,7 +793,7 @@ def get_references_html(cycle_details: Dict, research_goal: Optional[ResearchGoa
                 html = "<h3>📚 Related arXiv Papers</h3>"
                 for paper in papers:
                     html += f"""
-                    <div style="border: 1px solid #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 8px; background-color: #fafafa;">
+                    <div style="border: 1px solid rgba(127, 127, 127, 0.35); padding: 15px; margin: 10px 0; border-radius: 8px; background-color: rgba(127, 127, 127, 0.08); color: inherit;">
                         <h4>{paper.get("title", "Untitled")}</h4>
                         <p><strong>Authors:</strong> {", ".join(paper.get("authors", [])[:5])}</p>
                         <p><strong>arXiv ID:</strong> {paper.get("arxiv_id", "Unknown")} | 
@@ -835,8 +835,10 @@ def create_gradio_interface():
             margin-bottom: 20px;
             font-weight: bold;
         }
-        .orange { background-color: #fff3cd; border: 1px solid #ffeaa7; }
-        .blue { background-color: #d1ecf1; border: 1px solid #bee5eb; }
+        .status-box { color: inherit; }
+        .orange { background-color: rgba(255, 193, 7, 0.16); border: 1px solid rgba(255, 193, 7, 0.55); }
+        .blue { background-color: rgba(23, 162, 184, 0.14); border: 1px solid rgba(23, 162, 184, 0.5); }
+        #results-panel pre, #references-panel pre { color: inherit; background: rgba(127, 127, 127, 0.10); }
         """,
     ) as demo:
         # Header
@@ -955,13 +957,17 @@ def create_gradio_interface():
                 with gr.Row():
                     with gr.Column():
                         results_output = gr.HTML(
-                            label="Results", value="<p>Results will appear here after running cycles.</p>"
+                            elem_id="results-panel",
+                            label="Results",
+                            value="<p>Results will appear here after running cycles.</p>",
                         )
 
                 with gr.Row():
                     with gr.Column():
                         references_output = gr.HTML(
-                            label="References", value="<p>Related research papers will appear here.</p>"
+                            elem_id="references-panel",
+                            label="References",
+                            value="<p>Related research papers will appear here.</p>",
                         )
 
             with gr.Tab("Run History") as run_history_tab:
