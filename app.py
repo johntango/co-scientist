@@ -12,6 +12,7 @@ from app.agents import SupervisorAgent
 
 # Import the existing app components
 from app.config import config
+from app.data_context import DataBundle, data_check_html
 from app.export import ideas_from_hypotheses, write_bundle
 from app.models import ContextMemory, ResearchGoal
 from app.run_store import delete_run, get_reports_dir, history_html, list_runs, report_file_url, save_run, write_report
@@ -156,6 +157,7 @@ def set_research_goal(
     reflection_temperature: float = 0.5,
     elo_k_factor: int = 32,
     top_k_hypotheses: int = 2,
+    data=None,
 ) -> Tuple[str, str]:
     """Set the research goal and initialize the system."""
     global current_research_goal, global_context
@@ -174,6 +176,7 @@ def set_research_goal(
             reflection_temperature=reflection_temperature,
             elo_k_factor=elo_k_factor,
             top_k_hypotheses=top_k_hypotheses,
+            data=data,
         )
 
         # Reset context
@@ -183,6 +186,8 @@ def set_research_goal(
         logger.info(f"Settings: model={current_research_goal.llm_model}, num={current_research_goal.num_hypotheses}")
 
         status_msg = f"✅ Research goal set successfully!\n\n**Goal:** {description}\n**Model:** {current_research_goal.llm_model or 'Default'}\n**Hypotheses per cycle:** {num_hypotheses}"
+        if data:
+            status_msg += f"\n**Data:** {data.summary()}"
 
         return status_msg, "Ready to run first cycle. Click 'Run Cycle' to begin."
 
@@ -224,6 +229,15 @@ def execute_cycle(
                 f.write(f"Step: {step_name} | {len(hypos)} hypotheses\n")
                 for h in hypos:
                     f.write(f"  - ID: {h.get('id')} | Title: {h.get('title')} | Elo: {h.get('elo_score', 'N/A')}\n")
+
+        # Uploaded data: check every quoted number of every hypothesis against the files
+        data = getattr(research_goal, "data", None)
+        if data:
+            for step in cycle_details.get("steps", {}).values():
+                for h in step.get("hypotheses", []) or []:
+                    if isinstance(h, dict):
+                        h["data_check"] = data.check_numbers(f"{h.get('title', '')}\n{h.get('text', '')}")
+            cycle_details["data"] = data.summary()
 
         # Format results for display (also logs final rankings)
         results_html = format_cycle_results(cycle_details, log_file=log_file)
@@ -396,6 +410,7 @@ def run_swarm_with_progress(
     matches: int,
     timeout_seconds: int = SWARM_TIMEOUT_SECONDS,
     poll_seconds: float = CYCLE_PROGRESS_INTERVAL_SECONDS,
+    data=None,
 ):
     """Run swarm mode in the background and stream its progress until done or timed out."""
     model = llm_model if llm_model and llm_model != "-- Select Model --" else None
@@ -412,6 +427,7 @@ def run_swarm_with_progress(
         final_k=min(10, int(n_workers) * int(per_worker)),
         parallel=min(4, int(n_workers)),
         progress=log.append,
+        data=data,
     )
 
     def worker():
@@ -481,12 +497,27 @@ def export_bundle_zip(mode: str) -> Optional[str]:
             by = {h["id"]: h for h in res["hypotheses"]}
             final = [by[i] for i in res["final"]]
             ideas = ideas_from_hypotheses(final, res["matches"])
+            note = (
+                f"research goal + uploaded data: {res['settings']['data']}"
+                if res["settings"].get("data")
+                else "the research-goal text only (no files)"
+            )
             return write_bundle(
-                ideas, str(out), out.name, LAST_SWARM["goal"], mode="swarm", model=LAST_SWARM.get("model") or ""
+                ideas,
+                str(out),
+                out.name,
+                LAST_SWARM["goal"],
+                mode="swarm",
+                model=LAST_SWARM.get("model") or "",
+                input_note=note,
             )
         if not current_research_goal or not global_context.hypotheses:
             return None
         hyps = [h.to_dict() for h in global_context.hypotheses.values()]
+        data = getattr(current_research_goal, "data", None)
+        if data:
+            for h in hyps:
+                h["data_check"] = data.check_numbers(f"{h.get('title', '')}\n{h.get('text', '')}")
         ideas = ideas_from_hypotheses(hyps)
         return write_bundle(
             ideas,
@@ -495,6 +526,9 @@ def export_bundle_zip(mode: str) -> Optional[str]:
             current_research_goal.description,
             mode="single",
             model=current_research_goal.llm_model or "",
+            input_note=f"research goal + uploaded data: {data.summary()}"
+            if data
+            else "the research-goal text only (no files)",
         )
     except Exception as e:
         logger.error("Bundle export failed: %s", e, exc_info=True)
@@ -753,6 +787,7 @@ def format_cycle_results(cycle_details: Dict, log_file: str = None) -> str:
                 <p><strong>Description:</strong> {hypo.get("text", "No description")}</p>
                 <p><strong>Novelty:</strong> {hypo.get("novelty_review", "Not assessed")} | 
                    <strong>Feasibility:</strong> {hypo.get("feasibility_review", "Not assessed")}</p>
+                {data_check_html(hypo["data_check"]) if "data_check" in hypo else ""}
             </div>
             """
 
@@ -860,6 +895,24 @@ def create_gradio_interface():
                     placeholder="Enter your research goal (e.g., 'Develop new methods for increasing the efficiency of solar panels')",
                     lines=3,
                 )
+                with gr.Row():
+                    goal_file = gr.File(
+                        label="Load the goal from a file (.md, .txt)",
+                        file_types=[".md", ".txt"],
+                        type="filepath",
+                    )
+                    data_files = gr.File(
+                        label="Data files (optional: .csv, .tsv, .md, .txt, .json)",
+                        file_count="multiple",
+                        file_types=[".csv", ".tsv", ".md", ".txt", ".json"],
+                        type="filepath",
+                    )
+                data_status = gr.Markdown(
+                    "No data attached: the model sees the goal text only. Attach tables (and a README) to ground the "
+                    "hypotheses in them: each step gets the rows most relevant to it, and every quoted number is checked "
+                    "against the files. **Attached data is sent to the model provider you select**, so attach only what "
+                    "you may share with it."
+                )
 
                 # Advanced settings
                 with gr.Accordion("⚙️ Advanced Settings", open=False):
@@ -938,10 +991,11 @@ def create_gradio_interface():
                 gr.Markdown("""
                 ### 📖 Instructions
 
-                1. **Enter a research goal**: the question, the data you can use, and what each hypothesis should contain.
-                2. **Choose a mode**: *Single co-scientist* (one generation call per cycle) or *Swarm* (parallel workers ranked by debate).
-                3. **Adjust settings** (optional): model, hypotheses per cycle, and the swarm's workers, rounds and debates.
-                4. **Run**: results appear below; with **Export results** ticked, a zip of .html, .md and .json files is ready to download.
+                1. **Enter a research goal**: the question, the data you can use, and what each hypothesis should contain (or load it from a .md/.txt file).
+                2. **Attach data** (optional): tables (.csv, .tsv) and a README; every step sees the parts relevant to it, and quoted numbers are checked against them.
+                3. **Choose a mode**: *Single co-scientist* (one generation call per cycle) or *Swarm* (parallel workers ranked by debate).
+                4. **Adjust settings** (optional): model, hypotheses per cycle, and the swarm's workers, rounds and debates.
+                5. **Run**: results appear below; with **Export results** ticked, a zip of .html, .md and .json files is ready to download.
 
                 ### 💡 Tips
                 - Start small on the free models: 3 workers × 3 hypotheses, 1 round
@@ -998,7 +1052,9 @@ def create_gradio_interface():
             rounds=1,
             matches=2,
             export=True,
+            data_paths=None,
         ):
+            data = DataBundle.from_paths(data_paths or []) or None
             if mode == "Swarm":
                 if not (research_goal or "").strip():
                     yield (
@@ -1011,7 +1067,7 @@ def create_gradio_interface():
                     )
                     return
                 for status, results, references in run_swarm_with_progress(
-                    research_goal.strip(), llm_model, workers, per_worker, rounds, matches
+                    research_goal.strip(), llm_model, workers, per_worker, rounds, matches, data=data
                 ):
                     yield (
                         status,
@@ -1040,6 +1096,7 @@ def create_gradio_interface():
                 reflection_temp,
                 elo_k_factor,
                 top_k_hypotheses,
+                data=data,
             )
             yield (
                 f"{status_msg}\n\nStarting cycle with a {format_timeout_duration(CYCLE_TIMEOUT_SECONDS)} limit.",
@@ -1084,6 +1141,7 @@ def create_gradio_interface():
                 swarm_rounds,
                 swarm_matches,
                 export_checkbox,
+                data_files,
             ],
             outputs=[
                 status_output,
@@ -1094,6 +1152,29 @@ def create_gradio_interface():
                 bundle_file,
             ],
         )
+
+        def load_goal_file(path):
+            if not path:
+                return gr.update()
+            try:
+                return open(path, encoding="utf-8", errors="replace").read()
+            except OSError as e:
+                return f"Could not read the goal file: {e}"
+
+        def describe_data(paths):
+            if not paths:
+                return "No data attached: the model sees the goal text only."
+            d = DataBundle.from_paths(paths)
+            if not d:
+                return "No usable data files. " + "; ".join(d.skipped)
+            return (
+                f"**Data attached:** {d.summary()}. Each step gets an extract of about {20000:,} characters "
+                "(small tables whole, the most relevant rows of large ones); every quoted number is checked against these files. "
+                "**Attached data is sent to the model provider you select.**"
+            )
+
+        goal_file.upload(fn=load_goal_file, inputs=[goal_file], outputs=[research_goal_input])
+        data_files.change(fn=describe_data, inputs=[data_files], outputs=[data_status])
 
         demo.load(
             fn=refresh_history_view,

@@ -5,17 +5,21 @@ HIGH/MEDIUM/LOW labels of the reflection step, "evolves" by concatenating the to
 templated meta-review. Swarm mode keeps those agents' roles but gives each one an LLM, following published
 multi-agent designs:
 
-- Orchestrator-worker split (Anthropic's multi-agent research system): an orchestrator splits the goal into
+- Orchestrator-worker split (multi-agent research systems): an orchestrator splits the goal into
   distinct research directions, each with an objective and boundaries; one worker per direction generates
   hypotheses in parallel.
-- Routines and handoffs (OpenAI Swarm / Agents SDK): every role is a routine (fixed instructions and a JSON
+- Routines and handoffs (agent SDK pattern): every role is a routine (fixed instructions and a JSON
   output); work moves between routines by handoff, recorded in the trace.
 - Tournament of pairwise debates with Elo, proximity de-duplication, evolution of the top ideas from their
-  critiques, and a meta-review whose guidance feeds the next round (Google's AI co-scientist).
+  critiques, and a meta-review whose guidance feeds the next round (AI co-scientist designs).
 - Debate between agents (Du et al. 2023, multi-agent debate): the judge weighs the strongest argument for and
   against each hypothesis before choosing.
 
 Every LLM call is recorded (role, seconds, prompt and response sizes) in the returned trace.
+
+Uploaded data (optional, app.data_context.DataBundle): every step gets an extract of the files chosen for that step
+(the goal for the orchestrator, the worker's direction, the two hypotheses a judge compares, the hypothesis being
+rewritten), and every hypothesis's numbers are checked against the files at the end.
 """
 
 import json
@@ -28,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
 from .agents import call_llm_for_reflection
+from .data_context import DataBundle
 from .utils import call_llm, logger, similarity_score
 
 DEFAULT_LENSES = [
@@ -114,6 +119,8 @@ class SwarmCoScientist:
         judge_temperature: float = 0.2,
         seed: int = 0,
         progress: Optional[Callable[[str], None]] = None,
+        data: Optional[DataBundle] = None,
+        data_budget: int = 20000,
     ):
         self.goal, self.model = goal, model
         self.n_workers, self.per_worker, self.rounds = n_workers, per_worker, rounds
@@ -130,6 +137,7 @@ class SwarmCoScientist:
         self.errors: List[str] = []
         self._n = 0
         self._lock = threading.Lock()
+        self.data, self.data_budget = (data if data else None), data_budget
 
     # ------------------------------------------------------------------ plumbing
     def llm(self, role: str, prompt: str, temperature: float) -> str:
@@ -162,6 +170,12 @@ class SwarmCoScientist:
     def goal_brief(self, n: int = 6000) -> str:
         return self.goal if len(self.goal) <= n else self.goal[:n] + "\n[... goal truncated for this step ...]"
 
+    def data_block(self, query: str, budget: Optional[int] = None) -> str:
+        """Extract of the uploaded files for one step ('' without data, so prompts are unchanged)."""
+        if not self.data:
+            return ""
+        return "\n\n" + self.data.brief(query, budget or self.data_budget) + "\n\n"
+
     # ------------------------------------------------------------------ routines
     def orchestrate(self) -> List[Dict[str, str]]:
         prompt = (
@@ -170,7 +184,8 @@ class SwarmCoScientist:
             "name, an objective (what kind of hypotheses to look for), the data types it should favor, and boundaries "
             "(what to leave to the other workers). Together the directions must cover the goal.\n\n"
             f"RESEARCH GOAL:\n{self.goal_brief()}\n\n"
-            'Return only a JSON array of objects with keys "name", "objective", "data_types", "boundaries".'
+            + self.data_block(self.goal, min(self.data_budget, 8000))
+            + 'Return only a JSON array of objects with keys "name", "objective", "data_types", "boundaries".'
         )
         out = parse_json(self.llm("orchestrator", prompt, 0.5), list)
         lenses = [x for x in (out or []) if isinstance(x, dict) and x.get("objective")][: self.n_workers]
@@ -187,7 +202,10 @@ class SwarmCoScientist:
             f"Objective: {lens.get('objective', '')}\nFavor data types: {lens.get('data_types', '')}\n"
             f"Boundaries (left to other workers): {lens.get('boundaries', '')}\n\n"
             f"Propose {self.per_worker} novel, testable hypotheses within your direction, each complete in the format the goal asks for.\n\n"
-            "Please return the response as a JSON array of objects, where each object has a 'title' and 'text' key."
+            + self.data_block(
+                f"{self.goal[:3000]} {lens.get('name', '')} {lens.get('objective', '')} {lens.get('data_types', '')}"
+            )
+            + "Please return the response as a JSON array of objects, where each object has a 'title' and 'text' key."
         )
         data = parse_json(self.llm(f"worker{w + 1}", prompt, self.gen_t), list) or []
         out = []
@@ -259,7 +277,15 @@ class SwarmCoScientist:
             "Debate briefly: give the strongest argument for and against each, then decide.\n\n"
             f"RESEARCH GOAL (summary):\n{self.goal_brief(4000)}\n\n"
             f"HYPOTHESIS A: {a['title']}\n{a['text'][:6000]}\n\nHYPOTHESIS B: {b['title']}\n{b['text'][:6000]}\n\n"
-            'Return only a JSON object: {"for_A": "...", "against_A": "...", "for_B": "...", "against_B": "...", "winner": "A" or "B", "reason": "..."}'
+            + (
+                self.data_block(
+                    f"{a['title']} {a['text'][:3000]} {b['title']} {b['text'][:3000]}", min(self.data_budget, 8000)
+                )
+                + "Check the numbers each hypothesis quotes against the attached data; a number that is not there counts against it.\n\n"
+                if self.data
+                else ""
+            )
+            + 'Return only a JSON object: {"for_A": "...", "against_A": "...", "for_B": "...", "against_B": "...", "winner": "A" or "B", "reason": "..."}'
         )
         d = parse_json(self.llm("judge", prompt, self.judge_t), dict) or {}
         w = str(d.get("winner", "")).strip().upper()[:1]
@@ -325,7 +351,8 @@ class SwarmCoScientist:
             "the full format the goal asks for.\n\n"
             f"HYPOTHESIS: {h['title']}\n{h['text']}\n\nREVIEW: {' | '.join(h['review_comments'][-2:])[:1500]}\n"
             f"JUDGES' CRITIQUES: {' | '.join(losses)[:1500]}\nMETA-REVIEW GUIDANCE: {' | '.join(guidance)[:1500]}\n\n"
-            "Return only a JSON object with keys 'title' and 'text'."
+            + self.data_block(f"{h['title']} {h['text'][:4000]}", min(self.data_budget, 12000))
+            + "Return only a JSON object with keys 'title' and 'text'."
         )
         d = parse_json(self.llm("evolution", prompt, 0.6), dict)
         if not d or not d.get("text"):
@@ -373,6 +400,9 @@ class SwarmCoScientist:
                     x["round"] = r + 1
                 self.dedupe(new)
         final = sorted([h for h in self.hyps.values() if h["active"]], key=lambda h: -h["elo"])[: self.final_k]
+        if self.data:
+            for h in self.hyps.values():
+                h["data_check"] = self.data.check_numbers(h["title"] + "\n" + h["text"])
         self.progress(f"done: {len(self.trace)} LLM calls in {time.time() - t0:.0f}s")
         return dict(
             settings=dict(
@@ -386,6 +416,7 @@ class SwarmCoScientist:
                 dedupe_threshold=self.dedupe_threshold,
                 parallel=self.parallel,
                 k_factor=self.k,
+                data=self.data.summary() if self.data else None,
             ),
             lenses=lenses,
             hypotheses=list(self.hyps.values()),
@@ -402,6 +433,8 @@ class SwarmCoScientist:
 def format_swarm_results(result: Dict[str, Any]) -> str:
     """HTML for the Gradio results panel."""
     import html as H
+
+    from .data_context import data_check_html
 
     by = {h["id"]: h for h in result["hypotheses"]}
     s = result["settings"]
@@ -422,6 +455,8 @@ def format_swarm_results(result: Dict[str, Any]) -> str:
         )
         + "</ol>"
     )
+    if s.get("data"):
+        out.append(f"<p><b>Uploaded data:</b> {H.escape(s['data'])}</p>")
     out.append("<h3>Final ranking</h3>")
     for k, hid in enumerate(result["final"], 1):
         h = by[hid]
@@ -429,7 +464,8 @@ def format_swarm_results(result: Dict[str, Any]) -> str:
             f"<details><summary><b>#{k}</b> {H.escape(h['title'])} (Elo {h['elo']:.0f}; {h['wins']}–{h['losses']}; worker {h['worker']}"
             f"{'; evolved from ' + ', '.join(h['parent_ids']) if h['parent_ids'] else ''})</summary>"
             f"<pre style='white-space:pre-wrap;color:inherit;background:rgba(127,127,127,0.10);padding:10px;border-radius:6px'>{H.escape(h['text'])}</pre>"
-            f"<p><i>Review:</i> {H.escape(' | '.join(h['review_comments']))}</p></details>"
+            + (data_check_html(h["data_check"]) if "data_check" in h else "")
+            + f"<p><i>Review:</i> {H.escape(' | '.join(h['review_comments']))}</p></details>"
         )
     for m in result["meta_reviews"]:
         out.append(

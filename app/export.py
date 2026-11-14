@@ -124,6 +124,19 @@ def ideas_from_hypotheses(
                 "**Evolved from:** "
                 + ", ".join(f"{p} ({_as_text(by_id.get(p, {}).get('title', ''))})" for p in h["parent_ids"])
             )
+        dc = h.get("data_check")
+        if dc is not None:
+            found = sum(1 for c in dc if c.get("found"))
+            review.append(
+                f"## Data check ({found} of {len(dc)} quoted numbers found in the uploaded data)"
+                if dc
+                else "## Data check (no numbers quoted)"
+            )
+            for c in dc:
+                review.append(
+                    f"- {'found' if c.get('found') else 'NOT FOUND'}: {c.get('number')}"
+                    + (f" ({'; '.join(c.get('where') or [])})" if c.get("found") else "")
+                )
         mm = [m for m in matches or [] if hid in (m.get("winner"), m.get("loser"))]
         if mm:
             review.append(

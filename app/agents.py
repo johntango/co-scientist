@@ -224,6 +224,10 @@ class GenerationAgent:
             f"Existing Hypothesis IDs: {list(context.hypotheses.keys())}\n"  # Provide context
             f"Please propose {num_to_generate} novel and feasible hypotheses with rationale, avoiding duplication with existing IDs.\n"
         )
+        data = getattr(research_goal, "data", None)
+        if data:  # uploaded files: an extract chosen for the goal (prompt unchanged without data)
+            prompt += "\n" + data.brief(research_goal.description, getattr(research_goal, "data_budget", 20000)) + "\n"
+
         # Pass the specific temperature and num_hypotheses
         raw_output = call_llm_for_generation(
             prompt,
