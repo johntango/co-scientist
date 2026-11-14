@@ -19,6 +19,8 @@ from app.run_store import delete_run, get_reports_dir, history_html, list_runs, 
 from app.swarm import SwarmCoScientist, format_swarm_results
 from app.tools.arxiv_search import ArxivSearchTool
 from app.utils import (
+    FALLBACK_MIN_PARAMS_B,
+    _estimate_model_size_b,
     classify_llm_error,
     fetch_free_models,
     get_deployment_environment,
@@ -90,8 +92,9 @@ def get_default_model_choice(models: Optional[List[str]] = None) -> str:
     ):
         return CONFIGURED_LLM_MODEL
     free_models = order_free_models_for_demo(model_choices)
-    if free_models:
-        return free_models[0]
+    capable = [m for m in free_models if (_estimate_model_size_b(m) or FALLBACK_MIN_PARAMS_B) >= FALLBACK_MIN_PARAMS_B]
+    if capable or free_models:
+        return (capable or free_models)[0]
     return CONFIGURED_LLM_MODEL or SAFE_FALLBACK_LLM_MODEL
 
 
@@ -99,7 +102,10 @@ def get_model_dropdown_choices(models: Optional[List[str]] = None) -> List[str]:
     """Return model choices with a cost-safe default first and de-duplicated."""
     model_choices = models or available_models
     choices = [get_default_model_choice(model_choices)]
-    for model in [*order_free_models_for_demo(model_choices), *model_choices]:
+    ordered = order_free_models_for_demo(model_choices)
+    small = [m for m in ordered if (_estimate_model_size_b(m) or FALLBACK_MIN_PARAMS_B) < FALLBACK_MIN_PARAMS_B]
+    # capable free models first, very small ones (under 12B) last: they rarely follow a long goal
+    for model in [*[m for m in ordered if m not in small], *small, *model_choices]:
         if model and model not in choices:
             choices.append(model)
     return choices

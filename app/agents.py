@@ -40,26 +40,31 @@ def call_llm_for_generation(
         logger.error(f"LLM generation call failed: {response}")
         return [{"title": "Error", "text": response}]
 
-    try:
-        response = response.strip()
-        if response.startswith("```json"):
-            response = response[7:]
-        if response.endswith("```"):
-            response = response[:-3]
-        response = response.strip()
+    from .swarm import parse_json, reply_snippet  # lazy: swarm imports this module
 
-        hypotheses_data = json.loads(response)
-
-        if not isinstance(hypotheses_data, list) or not all(
-            isinstance(h, dict) and "title" in h and "text" in h for h in hypotheses_data
-        ):
-            error_message = "Invalid JSON format: Expected a list of objects with 'title' and 'text' keys."
-            raise ValueError(error_message)
-        logger.info("Parsed generated hypotheses: %s", hypotheses_data)
-        return hypotheses_data
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error("Could not parse LLM generation response as JSON: %s", response, exc_info=True)
-        return [{"title": "Error", "text": f"Could not parse LLM response: {e}"}]
+    data = parse_json(response, list)
+    if data is None and not response.startswith("Error:"):
+        # one retry asking for the bare array (models often add prose, or run out of tokens mid-array)
+        response = call_llm(
+            full_prompt
+            + "\n\nYour previous reply could not be read as JSON. Return ONLY the JSON array, with no other text.",
+            temperature=temperature,
+            model=model,
+        )
+        if response.startswith("Error:"):
+            return [{"title": "Error", "text": response}]
+        data = parse_json(response, list)
+    ideas = [h for h in (data or []) if isinstance(h, dict) and "title" in h and "text" in h]
+    if not ideas:
+        logger.error("Could not parse LLM generation response as JSON: %s", response)
+        return [{"title": "Error", "text": f"Could not parse LLM response ({reply_snippet(response)})"}]
+    for h in ideas:  # nested fields (some models return the requested sections as an object) become text
+        if not isinstance(h["text"], str):
+            h["text"] = json.dumps(h["text"], ensure_ascii=False, indent=1)
+        if not isinstance(h["title"], str):
+            h["title"] = str(h["title"])
+    logger.info("Parsed generated hypotheses: %s", ideas)
+    return ideas
 
 
 # Updated signature to accept temperature

@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -86,7 +87,27 @@ MAX_FALLBACK_ATTEMPTS = 4
 _MODEL_UNAVAILABLE_PREFIX = "Error: Model unavailable or delisted"
 _RATE_LIMIT_PREFIX = "Error: Rate limit exceeded"
 _TIMEOUT_PREFIX = "Error: Model provider timed out"
-_RECOVERABLE_PREFIXES = (_MODEL_UNAVAILABLE_PREFIX, _RATE_LIMIT_PREFIX, _TIMEOUT_PREFIX, "Error: API call failed")
+_EMPTY_PREFIX = "Error: Empty reply"
+_RECOVERABLE_PREFIXES = (
+    _MODEL_UNAVAILABLE_PREFIX,
+    _RATE_LIMIT_PREFIX,
+    _TIMEOUT_PREFIX,
+    _EMPTY_PREFIX,
+    "Error: API call failed",
+)
+# Free models smaller than this (when the size is in the model id) are never used as fallbacks: a 1-3B model cannot
+# follow a long goal with attached data and returns empty or broken JSON, which fails the whole run.
+FALLBACK_MIN_PARAMS_B = float(os.getenv("CO_SCIENTIST_FALLBACK_MIN_PARAMS_B", "12"))
+# Upstream "temporarily rate-limited" errors on free models usually clear within seconds: wait and retry the chosen
+# model this many times (seconds between tries) before falling back to another model.
+RATE_LIMIT_WAITS = [float(x) for x in os.getenv("CO_SCIENTIST_RATE_LIMIT_WAITS", "6,15").split(",") if x.strip()]
+_last = threading.local()
+_sleep = time.sleep  # the rate-limit wait (tests replace it)
+
+
+def last_model_used() -> Optional[str]:
+    """The model that produced the last successful reply in this thread (after any fallback)."""
+    return getattr(_last, "model", None)
 
 
 def _recoverable_with_another_model(result: str) -> bool:
@@ -211,9 +232,14 @@ def order_free_models_for_demo(models: List[str]) -> List[str]:
 
 
 def get_fallback_models(primary: Optional[str] = None) -> List[str]:
-    """Live/cached free models to try when ``primary`` is unavailable."""
+    """Live/cached free models to try when ``primary`` is unavailable, leaving out models known to be too small."""
     source = fetch_free_models()
-    return [m for m in source if m and m != primary]
+    out = []
+    for m in source:
+        size = _estimate_model_size_b(m)
+        if m and m != primary and (size is None or size >= FALLBACK_MIN_PARAMS_B):
+            out.append(m)
+    return out
 
 
 def _model_candidates(primary: str, fallbacks: Optional[List[str]]) -> List[str]:
@@ -260,7 +286,17 @@ def _attempt_model(
                 temperature=temperature,
             )
             if completion.choices and len(completion.choices) > 0:
-                return completion.choices[0].message.content or ""
+                content = completion.choices[0].message.content or ""
+                if content.strip():
+                    _last.model = model
+                    return content
+                # an empty reply (often a reasoning model that spent its output budget thinking) is retried, then
+                # reported so the caller can try another model
+                logger.warning("Empty reply from '%s' (attempt %d/%d).", model, attempt + 1, max_retries)
+                last_error_message = f"{_EMPTY_PREFIX} from '{model}'"
+                if attempt < max_retries - 1:
+                    continue
+                return last_error_message
             else:
                 logger.error("No choices in the LLM response: %s", completion)
                 last_error_message = f"No choices in the response: {completion}"
@@ -340,6 +376,13 @@ def call_llm(
 
     # Happy path: try the primary model. No fallback fetch unless it's needed.
     result = _attempt_model(client, primary, prompt, temperature)
+    # Upstream throttling of a free model usually clears within seconds: retry the chosen model before falling back.
+    for wait in RATE_LIMIT_WAITS:
+        if not result.startswith(_RATE_LIMIT_PREFIX):
+            break
+        logger.warning("'%s' is rate-limited; retrying it in %.0f s before trying other models.", primary, wait)
+        _sleep(wait)
+        result = _attempt_model(client, primary, prompt, temperature, max_retries=1)
     if not _recoverable_with_another_model(result):
         return result  # success, or a terminal error (auth) we must not mask
 

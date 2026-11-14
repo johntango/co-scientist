@@ -113,9 +113,12 @@ def test_free_model_is_default_when_configured_model_is_not_free(gradio_app_modu
 def test_stale_configured_free_model_is_not_forced_as_default(gradio_app_module, monkeypatch):
     monkeypatch.setattr(gradio_app_module, "CONFIGURED_LLM_MODEL", "delisted/model:free")
 
-    choices = gradio_app_module.get_model_dropdown_choices(["vendor/model-70b:free", "vendor/model-3b:free"])
+    choices = gradio_app_module.get_model_dropdown_choices(
+        ["vendor/model-70b:free", "vendor/model-3b:free", "vendor/model-14b:free"]
+    )
 
-    assert choices[0] == "vendor/model-3b:free"
+    # the smallest capable model (12B or more) is the default; models under 12B are listed last
+    assert choices[:3] == ["vendor/model-14b:free", "vendor/model-70b:free", "vendor/model-3b:free"]
     assert "delisted/model:free" not in choices
 
 
