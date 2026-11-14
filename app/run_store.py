@@ -195,6 +195,8 @@ def render_report(run: Dict[str, Any]) -> str:
         ".meta{color:#52606d}.hypothesis{border-left:4px solid #2f80ed;padding-left:12px;margin:14px 0}",
         "pre{white-space:pre-wrap;background:#f5f7fa;padding:12px;border-radius:6px;overflow:auto}",
         "table{border-collapse:collapse;width:100%}td,th{border:1px solid #d9e2ec;padding:8px;text-align:left}",
+        "@media (prefers-color-scheme: dark){body{color:#e4e7eb;background:#111418}.meta{color:#9aa5b1}"
+        "section,td,th{border-color:#3e4c59}pre{background:#1f2933}a{color:#7cb7ff}}",
         "</style>",
         "</head>",
         "<body><main>",

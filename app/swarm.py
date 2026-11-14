@@ -428,7 +428,7 @@ def format_swarm_results(result: Dict[str, Any]) -> str:
         out.append(
             f"<details><summary><b>#{k}</b> {H.escape(h['title'])} (Elo {h['elo']:.0f}; {h['wins']}–{h['losses']}; worker {h['worker']}"
             f"{'; evolved from ' + ', '.join(h['parent_ids']) if h['parent_ids'] else ''})</summary>"
-            f"<pre style='white-space:pre-wrap'>{H.escape(h['text'])}</pre>"
+            f"<pre style='white-space:pre-wrap;color:inherit;background:rgba(127,127,127,0.10);padding:10px;border-radius:6px'>{H.escape(h['text'])}</pre>"
             f"<p><i>Review:</i> {H.escape(' | '.join(h['review_comments']))}</p></details>"
         )
     for m in result["meta_reviews"]:
