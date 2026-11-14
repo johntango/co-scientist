@@ -1,178 +1,96 @@
 ---
-title: Open AI Co-Scientist
-emoji: 📊
+title: Co-Scientist Swarm
+emoji: 🐝
 colorFrom: gray
-colorTo: gray
+colorTo: blue
 sdk: gradio
 sdk_version: 6.19.0
 python_version: 3.12
 app_file: app.py
 pinned: false
 license: mit
-short_description: Open-source implementation of Google's AI Co-Scientist
+short_description: Generate, debate-rank and export research hypotheses
 ---
 
-# Open AI Co-Scientist - Hypothesis Evolution System
+# Co-Scientist Swarm
 
-Open AI Co-Scientist is an AI-powered system for generating, reviewing, ranking, and evolving research hypotheses using a multi-agent architecture and Large Language Models (LLMs). The user interface is built with Gradio for rapid prototyping and interactive research. The system helps researchers explore research spaces and identify promising hypotheses through iterative refinement.
+**Saleem Al Dajani** · [GitHub](https://github.com/saleemaldajani) · [Hugging Face](https://huggingface.co/sdajani)
 
-A live demonstration can be accessed at: https://huggingface.co/spaces/liaoch/open-ai-co-scientist
-* Please note that this demo exclusively utilizes free models from OpenRouter.
+**Demo:** https://huggingface.co/spaces/sdajani/co-scientist-public-demo
 
-Demo of this fork, with **Swarm mode** and **Export results**: https://huggingface.co/spaces/sdajani/co-scientist-public-demo
+Language models can propose research hypotheses faster than anyone can check them. The bottleneck is no longer generation but ranking and verification: deciding which hypotheses are worth testing, and checking that each one names real data and a test that can actually be run. I built this fork to study that bottleneck. It generates hypotheses for a research goal, ranks them by structured debate between model judges, and exports every ranked idea with its review so it can be audited and tested outside the app.
 
-## 🚀 Features
+## What this fork adds
 
-- **Multi-Agent System:** Iteratively generates, reviews, ranks, and evolves research hypotheses using specialized agents (Generation, Reflection, Ranking, Evolution, Proximity, Meta-Review).
-- **LLM Integration:** Uses OpenRouter API to access a variety of LLMs (model selection in UI).
-- **Interactive Gradio UI:** Easy-to-use interface for research goal input, advanced settings, and results visualization.
-- **References & Literature:** Integrated arXiv search for related papers.
-- **Cost Control:** Automatically filters to cost-effective models in production deployment.
-- **Logging:** Each run is logged to a timestamped file in the `results/` directory.
+### Swarm mode
+A single co-scientist asks one model call for all hypotheses at once, then ranks them by their review labels. Swarm mode instead divides the goal across several agents and ranks the pooled hypotheses by debate:
 
-## AI Transparency Statement
+1. **Orchestrator.** Splits the goal into distinct research directions, each with an objective, the data types to favor, and boundaries.
+2. **Workers.** One per direction, generating hypotheses in parallel.
+3. **Proximity.** Merges near-duplicates by sentence-embedding similarity, so repeats do not dilute the ranking.
+4. **Reflection.** Reviews each hypothesis for novelty and feasibility, with references.
+5. **Tournament.** An LLM judge argues for and against each of two hypotheses, then picks a winner; Elo ratings update after every debate, with Swiss pairing by current rating and randomized order.
+6. **Meta-review.** Reads the ranking, reviews and the judges' reasons, and writes guidance for improvement.
+7. **Evolution.** Rewrites the top hypotheses from their critiques; the rewrites re-enter the tournament in the next round.
 
-In accordance with LLNL policy on Generative Artificial Intelligence, this project contains AI-assisted code and documentation. Various AI models (including OpenAI and Claude) were used to draft components and fix errors. The development process involved switching between models when encountering limitations with a particular model. All AI-generated content has been reviewed and verified by human developers to ensure accuracy, security, and alignment with project requirements.
+Every model call, debate and merge is logged with the run. The single co-scientist mode is unchanged, so the two can be compared on the same goal and model.
 
-## 💡 Example Research Goals
+### Export results
+Tick **Export results** (on by default) to download a zip of each run:
 
-- Develop new methods for increasing the efficiency of solar panels.
-- Create novel approaches to treat Alzheimer's disease.
-- Design sustainable materials for construction.
-- Improve machine learning model interpretability.
-- Develop new quantum computing algorithms.
+| File | Contents |
+|---|---|
+| `share/ideas_bundle.json` | every ranked idea: text, Elo, review labels, references, debate record |
+| `share/ideas_bundle.md`, `share/ideas_bundle.html` | a leaderboard, then each idea with its summary, full text, review and references |
+| `share/idea_rankNN.html` | one page per idea, with navigation between ranks |
+| `reviews/review_<id>.md` | the review of each idea, with its debates in swarm mode |
+| `references.csv`, `references.md` | every reference, with the idea it belongs to |
 
-## Quick Start
+References are written by the model, not retrieved, so resolve each one before relying on it.
 
-1. **Set up a virtual environment (recommended):**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
+## Quick start
 
-2. **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+python3.12 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+export OPENROUTER_API_KEY=your_key      # https://openrouter.ai/keys; free models need no credit
+python app.py                           # http://localhost:7860
+```
 
-3. **Set up your OpenRouter API key:**
-    - Sign up at [https://openrouter.ai/](https://openrouter.ai/) and obtain an API key.
-    - Add at least $5 to your OpenRouter account balance (or use a free model if available).
-    - Set the environment variable:
-      ```bash
-      export OPENROUTER_API_KEY=your_api_key
-      ```
+Enter a research goal, choose **Single co-scientist** or **Swarm** under Mode, adjust the swarm settings if needed, and run.
 
-4. **Run the Gradio app:**
-    ```bash
-    python app.py
-    ```
-    Or, using the Makefile:
-    ```bash
-    make run
-    ```
+### Local open models
+The app talks to any OpenAI-compatible endpoint, so it can run entirely on a local machine, for example with [Ollama](https://ollama.com):
 
-5. **Access the web interface:**
-    - Open your browser and go to [http://localhost:7860](http://localhost:7860)
+```yaml
+# config.yaml
+openrouter_base_url: "http://localhost:11434/v1"
+llm_model: "gpt-oss:120b"               # or gemma4:31b, ...
+llm_request_timeout_seconds: 3600       # large local models are slow
+```
 
-## 🎯 How to Use
+Set `OPENROUTER_API_KEY` to any non-empty string (Ollama ignores it). For long research prompts, give the model a large enough context window, for example with an Ollama Modelfile containing `PARAMETER num_ctx 32768`.
 
-1. **Enter a research goal** in the provided textbox.
-2. **(Optional) Adjust advanced settings** such as LLM model, number of hypotheses, temperatures, etc.
-3. **Click "Run Cycle"** to generate, review, and evolve hypotheses.
-4. **View results, meta-review, and related literature** in the web interface.
-5. **Iterate** by running additional cycles to refine hypotheses.
+### From Python
 
-## ⚙️ Configuration
+```python
+from app.swarm import SwarmCoScientist
+from app.export import ideas_from_hypotheses, write_bundle
 
-- Default settings can be adjusted in `config.yaml`.
-- Many settings can be overridden in the Gradio UI under "Advanced Settings".
+res = SwarmCoScientist(goal, model="gpt-oss:120b", n_workers=4, per_worker=10, rounds=2).run()
+final = [h for h in res["hypotheses"] if h["id"] in res["final"]]
+write_bundle(ideas_from_hypotheses(final, res["matches"]), "results/my_run", "my_run", goal, mode="swarm")
+```
 
-## 🧠 How It Works
+## Tests
 
-The system uses a multi-agent approach:
+```bash
+make test     # offline: no key and no network; the model calls are mocked
+make lint
+```
 
-1. **Generation Agent:** Creates new research hypotheses.
-2. **Reflection Agent:** Reviews and assesses hypotheses for novelty and feasibility.
-3. **Ranking Agent:** Uses Elo rating system to rank hypotheses.
-4. **Evolution Agent:** Combines top hypotheses to create improved versions.
-5. **Proximity Agent:** Analyzes similarity between hypotheses.
-6. **Meta-Review Agent:** Provides overall critique and suggests next steps.
+## Credits and license
 
-## 🐝 Swarm Mode
+This is a fork of [llnl/open-ai-co-scientist](https://github.com/llnl/open-ai-co-scientist) (LLNL-CODE-2010270), whose single co-scientist cycle, interface and run history it builds on. Released under the MIT License (see `LICENSE` and `NOTICE`).
 
-Choose **Mode → Swarm** in the UI (or use `app.swarm.SwarmCoScientist` from Python) to run a swarm of co-scientists on one goal:
-
-1. **Orchestrator** splits the goal into distinct research directions, each with an objective and boundaries (orchestrator-worker pattern).
-2. **Workers** (one per direction) generate hypotheses in parallel.
-3. **Proximity** merges near-duplicates (sentence-embedding similarity) before ranking.
-4. **Reflection** reviews every hypothesis (novelty, feasibility, comment, references).
-5. **Tournament**: an LLM judge debates pairs (arguments for and against each) and Elo is updated; Swiss pairing by current rating.
-6. **Meta-review** reads the ranking, reviews and debate reasons and writes guidance.
-7. **Evolution** rewrites the top hypotheses from their critiques and the guidance; they re-enter the next round.
-
-The final ranking, every debate, merge and LLM call are returned (and saved with the run). The single-cycle mode is unchanged.
-Design references: Google's AI co-scientist (tournament, evolution, meta-review), OpenAI Swarm / Agents SDK (routines and handoffs),
-Anthropic's multi-agent research system (orchestrator-worker), and multi-agent debate (Du et al., 2023).
-
-## 📚 Literature Integration
-
-- Automatically searches arXiv for papers related to your research goal.
-- Displays relevant papers with full metadata, abstracts, and links.
-- Helps contextualize generated hypotheses within existing research.
-
-## ⚙️ Technical Details
-
-- **Models:** Uses OpenRouter API with cost-effective models in production.
-- **Environment Detection:** Automatically detects Hugging Face Spaces deployment.
-- **Cost Control:** Filters to budget-friendly models (Gemini Flash, GPT-3.5-turbo, Claude Haiku, etc.).
-- **Iterative Process:** Each cycle builds on previous results for continuous improvement.
-
-## 🔧 Deployment (Hugging Face Spaces)
-
-The system automatically configures itself based on the deployment environment:
-
-- **Production (HF Spaces):** Limited to cost-effective models for budget control.
-- **Development:** Full access to all available models.
-
-For the maintained release path from approved loop-repo PRs into the public
-upstream repo and then to Hugging Face, see
-[`docs/upstream-release-process.md`](docs/upstream-release-process.md).
-The process is backed by manual/tag-gated GitHub Actions workflows and offline
-tests.
-
-### Hugging Face Spaces Setup
-
-1. **Create a new Space** at [Hugging Face Spaces](https://huggingface.co/spaces).
-2. **Upload files:** README.md, app.py, requirements.txt, and the app/ directory.
-3. **Set environment variables:** Add your `OPENROUTER_API_KEY` as a secret in Space settings.
-4. **Deploy:** The Space will automatically build and deploy the app.
-
-## 📖 Research Paper
-
-Based on the AI Co-Scientist research: https://storage.googleapis.com/coscientist_paper/ai_coscientist.pdf
-
-## 🤝 Contributing
-
-This is an open-source project. Feel free to contribute improvements, bug fixes, or new features. 
-
-See CONTRIBUTING.md for details. 
-
-## ⚠️ Note
-
-This system requires an OpenRouter API key to function. The public demo uses a limited budget, so please use it responsibly. For extensive research, consider running your own instance with your API key.
-
-
-## Acknowledgements
-
-- Based on the idea of Google's AI Co-Scientist system.
-- Uses [Gradio](https://gradio.app/) for the user interface.
-- LLM access via [OpenRouter](https://openrouter.ai/).
-
----
-
-## Release
-
-LLNL-CODE-2010270
-
-SPDX-License-Identifier: MIT
+The swarm design follows the tournament, evolution and meta-review of Co-Scientist (Gottweis et al., *Nature*, 2026), the routines and handoffs of OpenAI Swarm, orchestrator-worker research agents, and multi-agent debate (Du et al., 2023).

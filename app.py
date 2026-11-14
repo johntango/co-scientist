@@ -826,7 +826,7 @@ def create_gradio_interface():
     status_text, status_color = get_deployment_status()
 
     with gr.Blocks(
-        title="Open AI Co-Scientist - Hypothesis Evolution System",
+        title="Co-Scientist Swarm",
         theme=gr.themes.Soft(),
         css="""
         .status-box {
@@ -840,8 +840,11 @@ def create_gradio_interface():
         """,
     ) as demo:
         # Header
-        gr.Markdown("# 🔬 Open AI Co-Scientist - Hypothesis Evolution System")
-        gr.Markdown("Generate, review, rank, and evolve research hypotheses using AI agents.")
+        gr.Markdown("# 🐝 Co-Scientist Swarm")
+        gr.Markdown(
+            "Generate research hypotheses, rank them by debate between model judges, and export every ranked idea "
+            "with its review so it can be checked and tested. By [Saleem Al Dajani](https://github.com/saleemaldajani)."
+        )
 
         # Deployment status
         gr.HTML(f'<div class="status-box {status_color}">🔧 Deployment Status: {status_text}</div>')
@@ -933,16 +936,16 @@ def create_gradio_interface():
                 gr.Markdown("""
                 ### 📖 Instructions
 
-                1. **Enter Research Goal**: Describe what you want to research.
-                2. **Adjust Settings** (optional): Customize model and parameters.
-                3. **Click "Run Cycle"**: The system will set your goal and immediately generate, review, rank, and evolve hypotheses in one step.
+                1. **Enter a research goal**: the question, the data you can use, and what each hypothesis should contain.
+                2. **Choose a mode**: *Single co-scientist* (one generation call per cycle) or *Swarm* (parallel workers ranked by debate).
+                3. **Adjust settings** (optional): model, hypotheses per cycle, and the swarm's workers, rounds and debates.
+                4. **Run**: results appear below; with **Export results** ticked, a zip of .html, .md and .json files is ready to download.
 
                 ### 💡 Tips
-                - Start with 4 hypotheses per cycle on the public free-model demo
-                - Compact free models are listed first; try another recommended free model if one provider is slow
-                - Higher generation temperature = more creative ideas
-                - Lower reflection temperature = more analytical reviews
-                - Each cycle builds on previous results
+                - Start small on the free models: 3 workers × 3 hypotheses, 1 round
+                - Larger models give sharper debates; compact free models are listed first because they are faster
+                - Each single-mode cycle builds on the previous one; a swarm run is self-contained
+                - References are written by the model, not retrieved: check them before relying on them
                 
                 **Note:** Free models can be rate-limited or slow. The app will try a few free fallbacks automatically, and you can select a different recommended free model in Advanced Settings.
                 """)
@@ -1110,11 +1113,19 @@ def create_gradio_interface():
         # Example inputs
         gr.Examples(
             examples=[
-                ["Develop new methods for increasing the efficiency of solar panels"],
-                ["Create novel approaches to treat Alzheimer's disease"],
-                ["Design sustainable materials for construction"],
-                ["Improve machine learning model interpretability"],
-                ["Develop new quantum computing algorithms"],
+                [
+                    "Identify wearable signals (heart rate, sleep, activity) that change months before a new chronic disease diagnosis"
+                ],
+                [
+                    "Propose testable hypotheses that combine wearable data with blood biomarkers to measure biological aging"
+                ],
+                [
+                    "Find interventions whose effect on resting heart rate and sleep could forecast their effect on long-term health"
+                ],
+                [
+                    "Design ways to tell a sustained physiological change from a sensor artifact in consumer wearable data"
+                ],
+                ["Propose multimodal hypotheses linking proteomics and lifestyle surveys to healthy aging"],
             ],
             inputs=[research_goal_input],
             label="Example Research Goals",
@@ -1124,7 +1135,7 @@ def create_gradio_interface():
         gr.HTML(
             """
             <div style="text-align:center; margin-top: 30px;">
-                <a href="https://github.com/chunhualiao/ai-co-scientist" target="_blank" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+                <a href="https://github.com/saleemaldajani/co-scientist" target="_blank" style="text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
                     <svg height="32" width="32" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;">
                         <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
                         0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52
