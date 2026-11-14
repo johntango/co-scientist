@@ -35,6 +35,19 @@ A single co-scientist asks one model call for all hypotheses at once, then ranks
 
 Every model call, debate and merge is logged with the run. The single co-scientist mode is unchanged, so the two can be compared on the same goal and model.
 
+### Attach data
+Models only read text, so the stock app saw nothing but the goal and invented its numbers. Attach tables
+(`.csv`, `.tsv`) and text files (`.md`, `.txt`, `.json`, such as a README or data dictionary) next to the goal, or load
+the goal itself from a file:
+
+- **An extract per step.** Each prompt gets about 20,000 characters of the data: text files and small tables whole,
+  and for large tables the rows most relevant to that step (the goal for the orchestrator, a worker's direction, the two
+  ideas a judge compares, the idea being rewritten).
+- **A check of every quoted number.** After the run, each number a hypothesis quotes is looked up in the files and shown
+  as found, with its file and row, or not found. The check is in the results panel and in **Export results**.
+
+Attached data is sent to the model provider you select; with a local model it stays on your machine.
+
 ### Export results
 Tick **Export results** (on by default) to download a zip of each run:
 
@@ -77,7 +90,10 @@ Set `OPENROUTER_API_KEY` to any non-empty string (Ollama ignores it). For long r
 from app.swarm import SwarmCoScientist
 from app.export import ideas_from_hypotheses, write_bundle
 
-res = SwarmCoScientist(goal, model="gpt-oss:120b", n_workers=4, per_worker=10, rounds=2).run()
+from app.data_context import DataBundle
+
+data = DataBundle.from_dir("my_tables/")  # optional
+res = SwarmCoScientist(goal, model="gpt-oss:120b", n_workers=4, per_worker=10, rounds=2, data=data).run()
 final = [h for h in res["hypotheses"] if h["id"] in res["final"]]
 write_bundle(ideas_from_hypotheses(final, res["matches"]), "results/my_run", "my_run", goal, mode="swarm")
 ```
