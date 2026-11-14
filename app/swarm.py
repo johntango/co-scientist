@@ -28,22 +28,23 @@ import random
 import re
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
 from .agents import call_llm_for_reflection
 from .data_context import DataBundle
-from .utils import call_llm, logger, similarity_score
+from .utils import call_llm, last_model_used, logger, similarity_score
 
 DEFAULT_LENSES = [
     {
         "name": "Mechanism",
-        "objective": "Hypotheses about biological or physiological mechanisms.",
+        "objective": "Hypotheses about the causal mechanism behind the pattern the goal asks about.",
         "boundaries": "Avoid purely methodological ideas.",
     },
     {
         "name": "Measurement",
-        "objective": "Hypotheses about what a new measurement or data type reveals that others cannot.",
+        "objective": "Hypotheses about what a particular measurement, record or data source reveals that others cannot.",
         "boundaries": "Each must hinge on the measurement itself.",
     },
     {
@@ -66,8 +67,37 @@ def _strip_json(text: str) -> str:
     return t.strip()
 
 
+def _salvage_objects(t: str) -> List[Any]:
+    """Complete JSON objects from an array cut off mid-way (a reply that ran out of output tokens)."""
+    i = t.find("[")
+    if i < 0:
+        return []
+    dec, pos, out = json.JSONDecoder(), i + 1, []
+    while True:
+        while pos < len(t) and t[pos] in " \t\r\n,":
+            pos += 1
+        if pos >= len(t) or t[pos] != "{":
+            return out
+        try:
+            obj, pos = dec.raw_decode(t, pos)
+        except json.JSONDecodeError:
+            try:
+                obj, pos = json.JSONDecoder(strict=False).raw_decode(t, pos)
+            except json.JSONDecodeError:
+                return out
+        out.append(obj)
+
+
 def parse_json(text: str, want: type):
-    """Parse a JSON object or array from an LLM reply; tolerate fences and leading or trailing prose."""
+    """Parse a JSON object or array from an LLM reply; tolerate fences, leading or trailing prose, control
+    characters inside strings, and (for arrays) a reply cut off after some complete objects."""
+    v = _parse_json(text, want)
+    if v is None and want is list:
+        v = _salvage_objects(_strip_json(text)) or None
+    return v
+
+
+def _parse_json(text: str, want: type):
     t = _strip_json(text)
     try:
         v = json.loads(t)
@@ -78,13 +108,19 @@ def parse_json(text: str, want: type):
     o, c = ("[", "]") if want is list else ("{", "}")
     i, j = t.find(o), t.rfind(c)
     if i >= 0 and j > i:
-        try:
-            v = json.loads(t[i : j + 1])
-            if isinstance(v, want):
-                return v
-        except (json.JSONDecodeError, ValueError):
-            pass
+        for strict in (True, False):
+            try:
+                v = json.loads(t[i : j + 1], strict=strict)
+                if isinstance(v, want):
+                    return v
+            except (json.JSONDecodeError, ValueError):
+                pass
     return None
+
+
+def reply_snippet(text: str, n: int = 140) -> str:
+    t = " ".join((text or "").split())
+    return "empty reply" if not t else f"reply began: {t[:n]!r}"
 
 
 def as_text(v: Any) -> str:
@@ -146,6 +182,7 @@ class SwarmCoScientist:
         self.trace.append(
             dict(
                 role=role,
+                model_used=last_model_used() if not (out or "").startswith("Error:") else None,
                 seconds=round(time.time() - t0, 1),
                 prompt_chars=len(prompt),
                 response_chars=len(out or ""),
@@ -157,6 +194,21 @@ class SwarmCoScientist:
         if (out or "").startswith("Error:"):
             self.errors.append(f"{role}: {out[:300]}")
         return out or ""
+
+    def ask_json(self, role: str, prompt: str, temperature: float, want: type):
+        """Call and parse; if the reply cannot be read, ask once more for the bare JSON. Returns (value, last reply)."""
+        out = self.llm(role, prompt, temperature)
+        v = parse_json(out, want)
+        if v is None and not out.startswith("Error:"):
+            kind = "array" if want is list else "object"
+            out = self.llm(
+                role + " (retry)",
+                prompt
+                + f"\n\nYour previous reply could not be read as JSON. Return ONLY the JSON {kind}, with no other text.",
+                temperature,
+            )
+            v = parse_json(out, want)
+        return v, out
 
     def pmap(self, fn, items):
         with ThreadPoolExecutor(max_workers=max(1, self.parallel)) as ex:
@@ -187,10 +239,10 @@ class SwarmCoScientist:
             + self.data_block(self.goal, min(self.data_budget, 8000))
             + 'Return only a JSON array of objects with keys "name", "objective", "data_types", "boundaries".'
         )
-        out = parse_json(self.llm("orchestrator", prompt, 0.5), list)
+        out, reply = self.ask_json("orchestrator", prompt, 0.5, list)
         lenses = [x for x in (out or []) if isinstance(x, dict) and x.get("objective")][: self.n_workers]
         if len(lenses) < self.n_workers:
-            self.errors.append("orchestrator: fell back to default directions")
+            self.errors.append(f"orchestrator: fell back to default directions ({reply_snippet(reply)})")
             lenses = (lenses + DEFAULT_LENSES)[: self.n_workers]
         return [{k: as_text(v) for k, v in lens.items()} for lens in lenses]
 
@@ -207,7 +259,8 @@ class SwarmCoScientist:
             )
             + "Please return the response as a JSON array of objects, where each object has a 'title' and 'text' key."
         )
-        data = parse_json(self.llm(f"worker{w + 1}", prompt, self.gen_t), list) or []
+        data, reply = self.ask_json(f"worker{w + 1}", prompt, self.gen_t, list)
+        data = data or []
         out = []
         for d in data:
             if isinstance(d, dict) and d.get("title") and d.get("text"):
@@ -229,7 +282,7 @@ class SwarmCoScientist:
                     )
                 )
         if not out:
-            self.errors.append(f"worker{w + 1}: no parsable hypotheses")
+            self.errors.append(f"worker{w + 1}: no parsable hypotheses ({reply_snippet(reply)})")
         return out
 
     def dedupe(self, new: List[Dict[str, Any]]) -> None:
@@ -287,7 +340,7 @@ class SwarmCoScientist:
             )
             + 'Return only a JSON object: {"for_A": "...", "against_A": "...", "for_B": "...", "against_B": "...", "winner": "A" or "B", "reason": "..."}'
         )
-        d = parse_json(self.llm("judge", prompt, self.judge_t), dict) or {}
+        d = self.ask_json("judge", prompt, self.judge_t, dict)[0] or {}
         w = str(d.get("winner", "")).strip().upper()[:1]
         if w not in ("A", "B"):
             w = self.rng.choice(["A", "B"])
@@ -334,7 +387,7 @@ class SwarmCoScientist:
             + "\n".join(f"- {r}" for r in reasons)
             + '\n\nReturn only a JSON object: {"critique": ["..."], "strengths": ["..."], "guidance": ["..."]}'
         )
-        d = parse_json(self.llm("meta_review", prompt, 0.4), dict) or {"critique": [], "strengths": [], "guidance": []}
+        d = self.ask_json("meta_review", prompt, 0.4, dict)[0] or {"critique": [], "strengths": [], "guidance": []}
         d = {k: [as_text(x) for x in (v if isinstance(v, list) else [v])] for k, v in d.items()}
         d["round"] = round_no
         self.meta_reviews.append(d)
@@ -354,9 +407,9 @@ class SwarmCoScientist:
             + self.data_block(f"{h['title']} {h['text'][:4000]}", min(self.data_budget, 12000))
             + "Return only a JSON object with keys 'title' and 'text'."
         )
-        d = parse_json(self.llm("evolution", prompt, 0.6), dict)
+        d, reply = self.ask_json("evolution", prompt, 0.6, dict)
         if not d or not d.get("text"):
-            self.errors.append(f"evolution of {h['id']}: no parsable rewrite")
+            self.errors.append(f"evolution of {h['id']}: no parsable rewrite ({reply_snippet(reply)})")
             return None
         return dict(
             id=self.new_id("V"),
@@ -383,7 +436,13 @@ class SwarmCoScientist:
         pool = [h for hs in self.pmap(self.work, list(enumerate(lenses))) for h in hs]
         self.progress(f"proximity: de-duplicating {len(pool)} hypotheses")
         self.dedupe(pool)
-        for r in range(1, self.rounds + 1):
+        if not pool:
+            self.errors.append(
+                "no hypotheses were generated, so ranking and review were skipped: every worker reply was empty or "
+                "unreadable (see above). Try again, or choose a larger model."
+            )
+            self.progress("stopped: no hypotheses to rank")
+        for r in range(1, (self.rounds if pool else 0) + 1):
             todo = [h for h in self.hyps.values() if h["active"] and not h["review_comments"]]
             self.progress(f"round {r}: reflection on {len(todo)} hypotheses")
             self.pmap(self.reflect, todo)
@@ -442,6 +501,19 @@ def format_swarm_results(result: Dict[str, Any]) -> str:
         f"<h2>🐝 Swarm result</h2><p>{s['n_workers']} workers × {s['per_worker']} hypotheses, {s['rounds']} rounds, "
         f"{len(result['matches'])} debates, {len(result['trace'])} LLM calls, {result['seconds']:.0f} s.</p>"
     ]
+    used = Counter(t.get("model_used") for t in result["trace"] if t.get("model_used"))
+    if used:
+        chosen = s.get("model") or ""
+        names = ", ".join(f"{H.escape(m)} ({n} call{'s' if n != 1 else ''})" for m, n in used.most_common())
+        note = "" if not chosen or set(used) == {chosen} else " (some calls fell back to other models)"
+        out.append(f"<p><b>Models that answered:</b> {names}{note}</p>")
+    if not result["final"]:
+        out.append(
+            "<p style='padding:10px;border-radius:6px;background:rgba(231,76,60,0.12)'><b>No hypotheses were generated.</b> "
+            "The workers' replies were empty or could not be read, so nothing was ranked or reviewed. The usual cause is a "
+            "free model that is busy upstream, or a fallback model too small for the goal and data. Try again in a minute "
+            "or choose a larger model.</p>"
+        )
     if result["errors"]:
         out.append(
             "<details><summary>⚠️ %d problems</summary><ul>%s</ul></details>"

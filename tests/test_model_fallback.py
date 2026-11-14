@@ -288,6 +288,7 @@ def test_rate_limited_primary_falls_back(monkeypatch):
 
 def test_all_rate_limited_surfaces_clear_error(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "fake")
+    monkeypatch.setattr(utils, "RATE_LIMIT_WAITS", [])  # no waiting retries of the primary in this test
     client = _client_that(_raise("Error code: 429 - rate-limited"))
     with (
         patch.object(utils, "fetch_free_models", return_value=["b:free"]),

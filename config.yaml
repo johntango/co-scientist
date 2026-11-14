@@ -9,10 +9,10 @@
 # OpenRouter API Base URL
 openrouter_base_url: "https://openrouter.ai/api/v1"
 
-# LLM Model. Use a compact free default so the public Hugging Face demo can
-# finish a full multi-call cycle within its UI timeout. If this one is delisted,
-# rate-limited, or too slow, call_llm auto-falls back to other live free models.
-llm_model: "meta-llama/llama-3.2-3b-instruct:free"
+# LLM Model. A fast free default that can still follow a long goal with attached data (a mixture-of-experts model,
+# about 4B parameters active). If it is delisted, rate-limited or too slow, call_llm retries it, then falls back to
+# other live free models of at least 12B parameters (smaller ones return empty or broken JSON on real goals).
+llm_model: "google/gemma-4-26b-a4b-it:free"
 
 # Number of hypotheses to generate
 num_hypotheses: 4
