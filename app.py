@@ -1113,6 +1113,11 @@ def create_gradio_interface():
         # Example inputs
         gr.Examples(
             examples=[
+                ["Develop new methods for increasing the efficiency of solar panels"],
+                ["Create novel approaches to treat Alzheimer's disease"],
+                ["Design sustainable materials for construction"],
+                ["Improve machine learning model interpretability"],
+                ["Develop new quantum computing algorithms"],
                 [
                     "Identify wearable signals (heart rate, sleep, activity) that change months before a new chronic disease diagnosis"
                 ],
