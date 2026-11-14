@@ -55,8 +55,13 @@ class ResearchGoal:
         reflection_temperature: Optional[float] = None,
         elo_k_factor: Optional[int] = None,
         top_k_hypotheses: Optional[int] = None,
+        data=None,
+        data_budget: int = 20000,
     ):
         self.description = description
+        # Optional uploaded data (app.data_context.DataBundle): an extract goes into every generation prompt
+        self.data = data if data else None
+        self.data_budget = data_budget
         self.constraints = constraints if constraints else {}
         # Store runtime settings, falling back to config defaults if not provided
         self.llm_model = (
