@@ -48,6 +48,41 @@ the goal itself from a file:
 
 Attached data is sent to the model provider you select; with a local model it stays on your machine.
 
+### Tool calls: scientific databases and web search
+
+Available on the source repository's [science-tools branch](https://github.com/saleemaldajani/co-scientist/tree/science-tools);
+this capability has not yet been merged into this repository's `main` branch.
+
+In that version, open **🧪 Science tools** and select **All tools**, or **Choose tools** to enable specific services.
+**No tools** is the default. Tool calls work before hypothesis generation in both single mode and each swarm worker,
+so hypotheses can use retrieved evidence alongside the research goal and attached data.
+
+The catalog includes 32 scientific tools, plus optional web search:
+
+| Area | Examples |
+|---|---|
+| Literature | PubMed, Europe PMC, OpenAlex, arXiv, bioRxiv |
+| Genes, variants and regulation | Ensembl, ClinVar, dbSNP, gnomAD, GTEx, ENCODE, JASPAR, NCBI sequences |
+| Proteins, structures and pathways | UniProt, PDB, AlphaFold DB, InterPro, STRING, Reactome, Foldseek |
+| Compounds, drugs and trials | ChEMBL, PubChem, openFDA, ClinicalTrials.gov, Open Targets |
+| Web search | Search results with URLs, snippets and short page excerpts |
+
+For scientific tools, the model selects up to two relevant tools, reads their command-line help, and requests up to
+three calls. It can then make up to three follow-up calls using the first results—for example, retrieving abstracts
+for papers found by a literature search. Duplicate calls are skipped. Each script runs without a shell in a temporary
+folder with a default 60-second timeout. Results and text files produced by the calls enter the generation prompt as
+**TOOL RESULTS**, with a default 12,000-character total budget and 6,000-character limit per call.
+
+Scientific tool selection, calls and outputs are recorded with the run and exported in `share/tool_calls.json`.
+Web search supplies a separate **WEB SEARCH RESULTS** block. Enabling tools adds model calls and network requests;
+even with a local model, database and web queries contact external services. Results can be incomplete and should
+be checked against the cited sources.
+
+Optional service credentials (`NCBI_API_KEY`, `OPENALEX_API_KEY`, `FDA_API_KEY`) belong in the environment.
+The scientific scripts are adapted from [science-skills](https://github.com/google-deepmind/science-skills): code is
+Apache-2.0 licensed and other material is CC BY 4.0. The feature branch includes attribution and individual data-source
+terms in `app/science_skills/`.
+
 ### Export results
 Tick **Export results** (on by default) to download a zip of each run:
 
