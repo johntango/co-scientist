@@ -13,7 +13,7 @@ from app.agents import SupervisorAgent
 # Import the existing app components
 from app.config import config
 from app.data_context import DataBundle, data_check_html
-from app.export import ideas_from_hypotheses, write_bundle
+from app.export import directions_from_lenses, ideas_from_hypotheses, write_bundle
 from app.models import ContextMemory, ResearchGoal
 from app.run_store import delete_run, get_reports_dir, history_html, list_runs, report_file_url, save_run, write_report
 from app.swarm import SwarmCoScientist, format_swarm_results
@@ -515,6 +515,7 @@ def export_bundle_zip(mode: str) -> Optional[str]:
                 str(out),
                 out.name,
                 LAST_SWARM["goal"],
+                directions=directions_from_lenses(res.get("lenses")),  # the records the live Directions list shows
                 mode="swarm",
                 model=LAST_SWARM.get("model") or "",
                 input_note=note,
