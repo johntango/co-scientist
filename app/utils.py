@@ -101,6 +101,9 @@ FALLBACK_MIN_PARAMS_B = float(os.getenv("CO_SCIENTIST_FALLBACK_MIN_PARAMS_B", "1
 # Upstream "temporarily rate-limited" errors on free models usually clear within seconds: wait and retry the chosen
 # model this many times (seconds between tries) before falling back to another model.
 RATE_LIMIT_WAITS = [float(x) for x in os.getenv("CO_SCIENTIST_RATE_LIMIT_WAITS", "6,15").split(",") if x.strip()]
+# Hard cap on one model call. The request timeout only limits silence between bytes, so a slow provider that keeps
+# trickling (a reasoning model thinking for minutes) can hold a call far longer; past this cap the call counts as timed out.
+LLM_CALL_MAX_SECONDS = float(os.getenv("CO_SCIENTIST_LLM_CALL_MAX_SECONDS", "150"))
 _last = threading.local()
 _sleep = time.sleep  # the rate-limit wait (tests replace it)
 
@@ -239,7 +242,8 @@ def get_fallback_models(primary: Optional[str] = None) -> List[str]:
         size = _estimate_model_size_b(m)
         if m and m != primary and (size is None or size >= FALLBACK_MIN_PARAMS_B):
             out.append(m)
-    return out
+    # reasoning models last: on free tiers they can think for minutes and then return an empty answer
+    return sorted(out, key=lambda m: "reason" in m.lower())
 
 
 def _model_candidates(primary: str, fallbacks: Optional[List[str]]) -> List[str]:
@@ -265,6 +269,26 @@ def _is_timeout(error_str: str) -> bool:
     return "timeout" in low or "timed out" in low or "read timed out" in low
 
 
+def _with_deadline(fn, seconds: float):
+    """Run fn() but give up after `seconds` (the call keeps running in a daemon thread and its result is dropped)."""
+    box: Dict[str, object] = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except Exception as e:  # re-raised in the caller's thread
+            box["error"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise TimeoutError(f"model call timed out after {seconds:.0f} s")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["value"]
+
+
 def _attempt_model(
     client: "OpenAI", model: str, prompt: str, temperature: float, max_retries: Optional[int] = None
 ) -> str:
@@ -280,10 +304,13 @@ def _attempt_model(
 
     for attempt in range(max_retries):
         try:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
+            completion = _with_deadline(
+                lambda: client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                ),
+                max(LLM_CALL_MAX_SECONDS, float(config.get("llm_request_timeout_seconds", 30))),
             )
             if completion.choices and len(completion.choices) > 0:
                 content = completion.choices[0].message.content or ""

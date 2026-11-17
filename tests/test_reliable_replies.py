@@ -89,3 +89,27 @@ def test_swarm_with_no_hypotheses_stops_cleanly(monkeypatch):
     assert any("no hypotheses were generated" in e for e in res["errors"])
     assert any("empty reply" in e for e in res["errors"] if e.startswith("worker"))
     assert "No hypotheses were generated" in swarm.format_swarm_results(res)
+
+
+def test_slow_call_hits_the_hard_cap(monkeypatch):
+    import time as _t
+
+    monkeypatch.setattr(utils, "LLM_CALL_MAX_SECONDS", 0.2)
+    try:
+        utils._with_deadline(lambda: _t.sleep(2), 0.2)
+    except TimeoutError as e:
+        assert "timed out" in str(e) and utils._is_timeout(str(e))
+    else:
+        raise AssertionError("no timeout")
+    assert utils._with_deadline(lambda: 7, 1) == 7
+
+
+def test_reasoning_models_are_tried_last():
+    with patch.object(
+        utils, "fetch_free_models", return_value=["n/nemotron-30b-reasoning:free", "g/gemma-4-31b:free", "x/flash:free"]
+    ):
+        assert utils.get_fallback_models("p:free") == [
+            "g/gemma-4-31b:free",
+            "x/flash:free",
+            "n/nemotron-30b-reasoning:free",
+        ]
