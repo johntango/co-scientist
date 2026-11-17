@@ -1,8 +1,9 @@
 """Export results: a run's ranked ideas as Markdown, HTML and JSON.
 
 Layout:
-    <out>/share/ideas_bundle.json   one object per idea
-    <out>/share/ideas_bundle.md     leaderboard, then every idea (summary, full idea, review, references)
+    <out>/share/ideas_bundle.json   one object per idea (with the direction of the worker that wrote it, or null)
+    <out>/share/directions.json     swarm runs: one record per assigned worker, in assignment order ([] otherwise)
+    <out>/share/ideas_bundle.md     directions, leaderboard, then every idea (summary, full idea, review, references)
     <out>/share/ideas_bundle.html   the same as one HTML page
     <out>/share/idea_rankNN.html    one page per idea, with navigation between ranks
     <out>/reviews/review_<id>.md    the review of each idea
@@ -45,12 +46,13 @@ CSS = """<style>
  blockquote{border-left:4px solid #dadce0;margin:0;padding:2px 14px;color:#5f6368}
  hr{border:0;border-top:1px solid #e8eaed;margin:28px 0}
  .badge{display:inline-block;background:#e8f0fe;color:#174ea6;border-radius:12px;padding:1px 10px;margin-right:6px;font-size:0.85em}
+ .direction{border-left:4px solid #174ea6;background:#f8f9fa;padding:6px 12px;margin:8px 0 14px;white-space:pre-wrap}
  @media (prefers-color-scheme: dark){
   body{color:#e8eaed;background:#121417} h1{border-bottom-color:#3c4043} h2,summary{color:#8ab4f8}
   .meta{color:#9aa0a6} .meta b{color:#e8eaed} a{color:#8ab4f8}
   th,td{border-color:#3c4043} th{background:#202124} code{background:#2a2c30} pre{background:#1b1d21}
   details{background:#1b1d21;border-color:#3c4043} blockquote{border-left-color:#3c4043;color:#9aa0a6} hr{border-top-color:#3c4043}
-  .badge{background:#1f3a5f;color:#d2e3fc}
+  .badge{background:#1f3a5f;color:#d2e3fc} .direction{background:#1b1d21;border-left-color:#8ab4f8}
  }
 </style>
 <script>window.MathJax={tex:{inlineMath:[['\\\\(','\\\\)'],['$','$']],displayMath:[['\\\\[','\\\\]'],['$$','$$']]}};</script>
@@ -176,6 +178,26 @@ def ideas_from_hypotheses(
     return ideas
 
 
+def directions_from_lenses(lenses: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """A swarm run's stored assignments as export records, in assignment order.
+
+    The live results page lists the same records (``result["lenses"]``): worker k + 1 got ``lenses[k]``, and its
+    hypotheses carry ``worker = k + 1``. Text is copied as stored; nothing is regenerated or inferred.
+    """
+    return [
+        {"worker": k, "lens": _as_text(lens.get("name", "")), "direction": _as_text(lens.get("objective", ""))}
+        for k, lens in enumerate(lenses or [], 1)
+        if isinstance(lens, dict)
+    ]
+
+
+def _direction_html(i: Dict[str, Any]) -> str:
+    if not i.get("direction"):
+        return ""
+    who = f"Worker {i.get('worker')}" + (f" · {i['lens']}" if i.get("lens") else "")
+    return f'<p class="direction"><b>Direction</b> ({html.escape(who)}): {html.escape(i["direction"])}</p>'
+
+
 def _badges(i: Dict[str, Any]) -> str:
     b = [f"Elo {i['elo_rating']:.1f}"]
     if i.get("novelty_review"):
@@ -197,19 +219,29 @@ def write_bundle(
     mode: str = "single",
     model: str = "",
     input_note: str = "the research-goal text only (no files)",
+    directions: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    """Write the bundle to out_dir and a zip next to it; return the zip path."""
+    """Write the bundle to out_dir and a zip next to it; return the zip path.
+
+    ``directions``: the run's stored worker assignments (``directions_from_lenses(result["lenses"])`` for a swarm run;
+    None for single-mode or older runs). Each idea is joined to its assignment by worker ID only; an idea without one
+    gets ``direction: null`` and no direction text on the rendered pages.
+    """
     share, revdir = os.path.join(out_dir, "share"), os.path.join(out_dir, "reviews")
     os.makedirs(share, exist_ok=True)
     os.makedirs(revdir, exist_ok=True)
+    directions = [dict(worker=d["worker"], lens=d["lens"], direction=d["direction"]) for d in directions or []]
+    by_worker = {str(d["worker"]): d["direction"] for d in directions}
     for i in ideas:
         i.update(
             goal=goal,
             run_dir=run_name,
             idea_md_path=f"share/ideas_bundle.md#rank-{i['rank']}",
             review_md_path=f"reviews/review_{i['id']}.md",
+            direction=by_worker.get(str(i.get("worker"))) if i.get("worker") is not None else None,
         )
     json.dump(ideas, open(os.path.join(share, "ideas_bundle.json"), "w"), indent=1, ensure_ascii=False, default=str)
+    json.dump(directions, open(os.path.join(share, "directions.json"), "w"), indent=1, ensure_ascii=False)
 
     lb = [
         "| rank | id | title | elo_rating | novelty | feasibility | debates | tools_used |",
@@ -222,7 +254,17 @@ def write_bundle(
     ]
     head = (
         f"# Co-Scientist ideas - {run_name}\n\nMode: {mode}{' · model: ' + model if model else ''}\n\n"
-        f"Input data: {input_note}\n\n## Leaderboard\n\n" + "\n".join(lb) + "\n\n"
+        f"Input data: {input_note}\n\n"
+        + (
+            "## Directions\n\n"
+            + "\n".join(f"- **Worker {d['worker']} · {d['lens']}**: {d['direction']}" for d in directions)
+            + "\n\n"
+            if directions
+            else ""
+        )
+        + "## Leaderboard\n\n"
+        + "\n".join(lb)
+        + "\n\n"
     )
     blocks = []
     for i in ideas:
@@ -236,6 +278,11 @@ def write_bundle(
         blocks.append(
             f"---\n\n# Rank {i['rank']}: {i['title']}\n\n*Idea ID* `{i['id']}` · "
             + " · ".join(_badges(i))
+            + (
+                f"\n\n**Direction** (Worker {i.get('worker')}{' · ' + i['lens'] if i.get('lens') else ''}): {i['direction']}"
+                if i.get("direction")
+                else ""
+            )
             + f"\n\n## Summary\n\n{i['summary']}\n\n## Full idea\n\n{i['text']}\n\n## Review\n\n{i['review'] or 'No review recorded.'}\n\n## References\n\n{refs}\n"
         )
         open(os.path.join(revdir, f"review_{i['id']}.md"), "w").write(
@@ -263,7 +310,8 @@ def write_bundle(
         )
         return (
             f'<h1>Rank {i["rank"]}: {html.escape(i["title"])}</h1><p class="meta">{badges}<br>Idea ID <code>{html.escape(str(i["id"]))}</code> &middot; run <b>{html.escape(run_name)}</b></p>'
-            f"<h2>Summary</h2>{md_to_html(i['summary'])}<h2>Full idea</h2>{md_to_html(i['text'])}"
+            + _direction_html(i)
+            + f"<h2>Summary</h2>{md_to_html(i['summary'])}<h2>Full idea</h2>{md_to_html(i['text'])}"
             f"<details><summary>Review</summary>{md_to_html(i['review'] or 'No review recorded.')}</details>"
             f"<h2>References</h2>{'<ol>' + refs + '</ol>' if refs else '<p>None attached.</p>'}"
         )
@@ -280,7 +328,17 @@ def write_bundle(
     bundle = (
         f'<h1>Co-Scientist ideas &ndash; {html.escape(run_name)}</h1><p class="meta">Mode <b>{html.escape(mode)}</b>'
         f"{' &middot; model <b>' + html.escape(model) + '</b>' if model else ''} &middot; input: {html.escape(input_note)}</p>"
-        f"<h2>Leaderboard</h2><table><tr><th>rank</th><th>title</th><th>Elo</th><th>novelty</th><th>feasibility</th></tr>{rows}</table>"
+        + (
+            "<h2>Directions</h2><table><tr><th>worker</th><th>lens</th><th>direction</th></tr>"
+            + "".join(
+                f"<tr><td>{html.escape(str(d['worker']))}</td><td>{html.escape(d['lens'])}</td><td>{html.escape(d['direction'])}</td></tr>"
+                for d in directions
+            )
+            + "</table>"
+            if directions
+            else ""
+        )
+        + f"<h2>Leaderboard</h2><table><tr><th>rank</th><th>title</th><th>Elo</th><th>novelty</th><th>feasibility</th></tr>{rows}</table>"
         + "".join("<hr>" + idea_html(i) for i in ideas)
         + f"<hr><h2>Goal</h2>{md_to_html(goal)}"
     )
