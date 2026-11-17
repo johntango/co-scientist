@@ -33,7 +33,7 @@ A single co-scientist asks one model call for all hypotheses at once, then ranks
 6. **Meta-review.** Reads the ranking, reviews and the judges' reasons, and writes guidance for improvement.
 7. **Evolution.** Rewrites the top hypotheses from their critiques; the rewrites re-enter the tournament in the next round.
 
-Every model call, debate and merge is logged with the run. The single co-scientist mode is unchanged, so the two can be compared on the same goal and model.
+Every model call, debate and merge is logged with the run. Single co-scientist mode remains available, so the two can be compared on the same goal and model.
 
 ### Attach data
 Models only read text, so the stock app saw nothing but the goal and invented its numbers. Attach tables
@@ -53,11 +53,15 @@ Tick **Export results** (on by default) to download a zip of each run:
 
 | File | Contents |
 |---|---|
-| `share/ideas_bundle.json` | every ranked idea: text, Elo, review labels, references, debate record |
-| `share/ideas_bundle.md`, `share/ideas_bundle.html` | a leaderboard, then each idea with its summary, full text, review and references |
-| `share/idea_rankNN.html` | one page per idea, with navigation between ranks |
+| `share/ideas_bundle.json` | every ranked idea: text, Elo, review labels, references, debate record and its worker's direction |
+| `share/directions.json` | each assigned worker's ID, lens and full direction, in assignment order |
+| `share/ideas_bundle.md`, `share/ideas_bundle.html` | worker directions, a leaderboard, then each idea with its direction, summary, full text, review and references |
+| `share/idea_rankNN.html` | one page per idea, including its worker direction and navigation between ranks |
 | `reviews/review_<id>.md` | the review of each idea, with its debates in swarm mode |
 | `references.csv`, `references.md` | every reference, with the idea it belongs to |
+
+Directions come from the stored worker assignments, including workers with no ranked ideas. Single-mode runs and
+older runs without stored assignments export an empty `directions.json` list and `null` idea directions.
 
 References are written by the model, not retrieved, so resolve each one before relying on it.
 
@@ -71,6 +75,24 @@ python app.py                           # http://localhost:7860
 ```
 
 Enter a research goal, choose **Single co-scientist** or **Swarm** under Mode, adjust the swarm settings if needed, and run.
+
+### Timeouts and retries
+
+Single and swarm runs each have a default 20-minute UI timeout. Set these environment variables before starting the app
+to adjust the limits (values are in seconds):
+
+| Variable | Default | Controls |
+|---|---|---|
+| `CO_SCIENTIST_CYCLE_TIMEOUT_SECONDS` | `1200` | single-mode cycle timeout |
+| `CO_SCIENTIST_SWARM_TIMEOUT_SECONDS` | `1200` | swarm run timeout |
+| `CO_SCIENTIST_LLM_CALL_MAX_SECONDS` | `150` | deadline for waiting on an individual model call |
+| `CO_SCIENTIST_RATE_LIMIT_WAITS` | `6,15` | waits before retrying a rate-limited model |
+
+The effective per-call deadline is the larger of `CO_SCIENTIST_LLM_CALL_MAX_SECONDS` and
+`llm_request_timeout_seconds` in `config.yaml`. A call that exceeds it is treated as timed out; the underlying request
+may continue in a background thread, but its result is discarded. Recoverable failures can trigger fallback models;
+automatically selected fallback IDs containing `reason` are tried last. This name-based rule does not detect every
+reasoning model.
 
 ### Local open models
 The app talks to any OpenAI-compatible endpoint, so it can run entirely on a local machine, for example with [Ollama](https://ollama.com):
@@ -88,14 +110,22 @@ Set `OPENROUTER_API_KEY` to any non-empty string (Ollama ignores it). For long r
 
 ```python
 from app.swarm import SwarmCoScientist
-from app.export import ideas_from_hypotheses, write_bundle
+from app.export import directions_from_lenses, ideas_from_hypotheses, write_bundle
 
 from app.data_context import DataBundle
 
+goal = "Propose testable hypotheses using the attached data."
 data = DataBundle.from_dir("my_tables/")  # optional
 res = SwarmCoScientist(goal, model="gpt-oss:120b", n_workers=4, per_worker=10, rounds=2, data=data).run()
 final = [h for h in res["hypotheses"] if h["id"] in res["final"]]
-write_bundle(ideas_from_hypotheses(final, res["matches"]), "results/my_run", "my_run", goal, mode="swarm")
+write_bundle(
+    ideas_from_hypotheses(final, res["matches"]),
+    "results/my_run",
+    "my_run",
+    goal,
+    mode="swarm",
+    directions=directions_from_lenses(res.get("lenses")),
+)
 ```
 
 ## Tests
