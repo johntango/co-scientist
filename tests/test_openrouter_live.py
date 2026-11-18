@@ -76,6 +76,6 @@ def test_live_default_dropdown_choice_comes_from_openrouter_free_list(monkeypatc
     monkeypatch.setattr(gradio_app, "CONFIGURED_LLM_MODEL", "definitely-delisted/model:free")
     choices = gradio_app.get_model_dropdown_choices(live_free_models)
 
-    assert choices[0] == live_free_models[0]
+    # The UI may reorder the live catalog to prefer models capable of research.
     assert choices[0] in live_free_models
     assert "definitely-delisted/model:free" not in choices
