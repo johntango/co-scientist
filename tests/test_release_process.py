@@ -203,3 +203,11 @@ def test_watch_huggingface_space_times_out_without_terminal_stage():
             assert "BUILDING" in str(exc)
         else:
             raise AssertionError("non-terminal stage did not time out")
+
+
+def test_space_runtime_requirements_do_not_include_unmounted_files():
+    requirements = Path("requirements.txt").read_text().splitlines()
+    assert not any(line.strip().startswith(("-r ", "--requirement ", "-c ", "--constraint ")) for line in requirements)
+    for dependency in Path("requirements-mcp.txt").read_text().splitlines():
+        if dependency.strip() and not dependency.startswith("#"):
+            assert dependency in requirements
