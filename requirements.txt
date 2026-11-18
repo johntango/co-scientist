@@ -12,4 +12,6 @@ feedparser==6.0.12  # For arXiv RSS feeds
 python-dateutil==2.9.0.post0  # Date handling for literature search
 markdown-it-py==4.3.0  # Markdown to HTML for the Google-style bundle export
 
--r requirements-mcp.txt
+# Keep runtime requirements self-contained: Spaces mounts only this file during install.
+mcp==1.26.0
+jsonschema==4.26.0

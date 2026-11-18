@@ -83,8 +83,9 @@ jobs:
               raise SystemExit("requirements.txt must pin gradio==...")
           EOF
           )"
+          cp requirements.txt /tmp/hf-preflight/requirements.txt
           /tmp/hf-preflight/bin/pip install --dry-run \
-            -r requirements.txt \
+            -r /tmp/hf-preflight/requirements.txt \
             "gradio[oauth,mcp]==${GRADIO_VERSION}" \
             "uvicorn>=0.14.0" "websockets>=10.4" \
             spaces
