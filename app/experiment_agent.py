@@ -246,6 +246,17 @@ class ExperimentAgent:
     async def _run(self, goal, complete=None):
         if not goal.strip():
             raise ValueError("Research question is required")
+        if self.coordinated:
+            original_goal = self.state.get("research_goal")
+            if original_goal is None:
+                original_goal = next(
+                    (message["content"] for message in self.state["messages"] if message["role"] == "user"),
+                    goal,
+                )
+            if original_goal != goal:
+                raise ValueError("Resume with the same research goal")
+            self.state["research_goal"] = original_goal
+            self.save()
         self.deadline = time.monotonic() + self.timeout
         if complete is None:
             key = os.getenv("OPENROUTER_API_KEY") or os.getenv("ROUTER_API_KEY")

@@ -560,3 +560,19 @@ def test_server_id_resolution_only_uses_selected_servers():
     with pytest.raises(ValueError, match="ambiguous"):
         resolve_server_id("TEAMLAB", {"TeamLab": {}, "teamlab": {}})
     assert resolve_server_id("TeamLab", {"TeamLab": {}, "teamlab": {}}) == "TeamLab"
+
+
+@pytest.mark.parametrize("status", ["failed", "cancelled", "running"])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_coordinated_resume_rejects_changed_goal(tmp_path, status, legacy):
+    agent = ExperimentAgent({}, "scripted", directory=tmp_path, coordinated=True)
+    agent.state.update(status=status, messages=[{"role": "user", "content": "Original question"}])
+    if not legacy:
+        agent.state["research_goal"] = "Original question"
+    agent.state["workflow"] = {"hypotheses": [{"id": "H1"}], "questions": []}
+    agent.save()
+    saved = agent.path.read_text()
+    resumed = ExperimentAgent({}, "scripted", directory=tmp_path, coordinated=True, session_id=agent.state["id"])
+    with pytest.raises(ValueError, match="same research goal"):
+        asyncio.run(resumed.run("Different question"))
+    assert agent.path.read_text() == saved
