@@ -26,7 +26,7 @@ Entries below are equal-weight means of replication-level cohort means, not pool
 Difference is policy minus specialist, in minutes. Negative means lower wait for that policy in these conditions. Intervals are pointwise 95% intervals; no multiple-comparison adjustment.
 
 | Setup | A share | Comparison policy | Mean difference | 95% interval |
-|---:|---:|---|---:|---| 
+|---:|---:|---|---:|---|
 | 0 | 0.5 | flexible_fcfs | -0.401 | [-0.460, -0.355] |
 | 0 | 0.5 | type_preference | -0.399 | [-0.458, -0.350] |
 | 0 | 0.5 | static_partition | 0.000 | [0.000, 0.000] |
