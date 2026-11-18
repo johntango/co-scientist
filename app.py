@@ -887,9 +887,9 @@ def create_gradio_interface():
     ) as demo:
         # Header
         gr.Markdown("# 🐝 Co-Scientist Swarm")
-        gr.Markdown(
-            "Generate research hypotheses, rank them by debate between model judges, and export every ranked idea "
-            "with its review so it can be checked and tested. By [Saleem Al Dajani](https://github.com/saleemaldajani)."
+        gr.HTML(
+            "<p>Generate research hypotheses, rank them by debate between model judges, and export every ranked idea "
+            'with its review so it can be checked and tested. <span style="font-size:10pt">John R Williams</span></p>'
         )
 
         # Deployment status
@@ -983,12 +983,15 @@ def create_gradio_interface():
 
                 # Single action button
                 with gr.Row():
-                    run_cycle_btn = gr.Button("🔄 Run Cycle", variant="primary")
+                    gr.Markdown(
+                        "**Tools: not used by Run Cycle.** To run TeamLab, use **Experimental Research (MCP)** below: discover tools, select a server, then click **Run complete research workflow**. This generates hypotheses before running simulations."
+                    )
+                    run_cycle_btn = gr.Button("🔄 Run Cycle — hypotheses only (optional)", variant="secondary")
 
                 # Status display
                 status_output = gr.Textbox(
                     label="Status",
-                    value="Enter a research goal and click 'Run Cycle' to begin.",
+                    value="For hypotheses and simulations, use Run complete research workflow in the experimental tab below.",
                     interactive=False,
                     lines=3,
                 )
@@ -1001,12 +1004,14 @@ def create_gradio_interface():
                 ### 📖 Instructions
 
                 1. **Enter a research goal**: the question, the data you can use, and what each hypothesis should contain (or load it from a .md/.txt file).
-                2. **Attach data** (optional): tables (.csv, .tsv) and a README; every step sees the parts relevant to it, and quoted numbers are checked against them.
-                3. **Choose a mode**: *Single co-scientist* (one generation call per cycle) or *Swarm* (parallel workers ranked by debate).
-                4. **Adjust settings** (optional): model, hypotheses per cycle, and the swarm's workers, rounds and debates.
-                5. **Run**: results appear below; with **Export results** ticked, a zip of .html, .md and .json files is ready to download.
+                2. **Open Experimental Research (MCP)** below and discover available tools.
+                3. **Select TeamLab** and choose the research model and execution budgets in that tab.
+                4. **Run complete research workflow**: the system discovers capabilities, generates hypotheses, designs simulation questions, runs experiments, and evaluates evidence.
+                5. **Follow the stage tracker**: hypotheses and questions remain visible; the activity dial and job IDs identify actual tool execution.
 
-                ### 💡 Tips
+                **Optional hypothesis-only exploration:** Single/Swarm settings, uploaded data and Run Cycle above generate and rank ideas without simulation. You can later import those candidates into the complete workflow.
+
+                ### 💡 Hypothesis-only tips
                 - Start small on the free models: 3 workers × 3 hypotheses, 1 round
                 - Larger models give sharper debates; compact free models are listed first because they are faster
                 - Each single-mode cycle builds on the previous one; a swarm run is self-contained
@@ -1016,7 +1021,18 @@ def create_gradio_interface():
                 """)
 
         with gr.Tabs():
+            from app.experiment_ui import add_experiment_tab
+
+            def experimental_candidates(source):
+                if source == "Single Co-Scientist candidates":
+                    return global_context.get_active_hypotheses()
+                return LAST_SWARM.get("res", {}).get("hypotheses", [])
+
+            add_experiment_tab(experimental_candidates, research_goal_input)
             with gr.Tab("Current Run"):
+                gr.Markdown(
+                    "**Hypothesis-only output — no simulator tools run here.** Numerical claims are model-generated proposals unless supported by separately linked experimental evidence."
+                )
                 with gr.Row():
                     with gr.Column():
                         results_output = gr.HTML(

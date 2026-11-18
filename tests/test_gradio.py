@@ -48,6 +48,16 @@ def test_gradio_interface_constructs_without_network(gradio_app_module):
     ):
         demo = gradio_app_module.create_gradio_interface()
     assert demo is not None
+    experimental_run = next(fn for fn in demo.fns.values() if fn.fn and fn.fn.__name__ == "research")
+    assert experimental_run.inputs[-1].label == "Research Goal"
+    assert any(
+        "John R Williams" in component["props"].get("value", "")
+        and "font-size:10pt" in component["props"].get("value", "")
+        and "Generate research hypotheses" in component["props"].get("value", "")
+        and "Saleem Al Dajani" not in component["props"].get("value", "")
+        for component in demo.config["components"]
+        if component["type"] == "html"
+    )
     # The fetch failed, so the module must have fallen back to a non-empty default model list.
     assert gradio_app_module.available_models
 

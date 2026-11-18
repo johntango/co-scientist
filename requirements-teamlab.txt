@@ -1,0 +1,5 @@
+# Standalone TeamLab; does not require the Co-Scientist / ML dependencies.
+simpy==4.1.1
+fastapi==0.163.1
+pydantic==2.12.5
+uvicorn==0.54.0

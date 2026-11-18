@@ -10,3 +10,8 @@ results
 .audit/
 .loop/
 .cache/
+
+# TeamLab local experiment artifacts and editable install metadata
+teamlab-data/
+teamlab-demo-data/
+*.egg-info/
