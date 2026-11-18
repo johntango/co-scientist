@@ -114,7 +114,11 @@ def test_huggingface_deploy_workflow_runs_checks_before_deploy():
     assert "v*" in workflow[True]["push"]["tags"]
     assert "main" in workflow[True]["push"]["branches"]
     assert workflow["permissions"] == {"contents": "read"}
-    assert "from llnl/sync/v" in workflow["jobs"]["deploy"]["if"]
+    assert "if" not in workflow["jobs"]["deploy"]
+    assert workflow["concurrency"]["group"] == "huggingface-deploy"
+    deploy_steps = [step for step in workflow["jobs"]["deploy"]["steps"] if "HF_SPACE_ID" in step.get("env", {})]
+    assert len(deploy_steps) == 2
+    assert all("johntango/co-scientist" in step["env"]["HF_SPACE_ID"] for step in deploy_steps)
 
     steps = workflow["jobs"]["deploy"]["steps"]
     step_names = [step.get("name", "") for step in steps]

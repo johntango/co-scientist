@@ -14,9 +14,9 @@ short_description: Generate, debate-rank and export research hypotheses
 
 # Co-Scientist Swarm
 
-**Saleem Al Dajani** · [GitHub](https://github.com/saleemaldajani) · [Hugging Face](https://huggingface.co/sdajani)
+**John R Williams** · [GitHub](https://github.com/johntango) · [Hugging Face](https://huggingface.co/johntango)
 
-**Demo:** https://huggingface.co/spaces/sdajani/co-scientist-public-demo
+**Demo:** https://huggingface.co/spaces/johntango/co-scientist
 
 Language models can propose research hypotheses faster than anyone can check them. The bottleneck is no longer generation but ranking and verification: deciding which hypotheses are worth testing, and checking that each one names real data and a test that can actually be run. I built this fork to study that bottleneck. It generates hypotheses for a research goal, ranks them by structured debate between model judges, and exports every ranked idea with its review so it can be audited and tested outside the app.
 
@@ -185,3 +185,13 @@ See [TeamLab installation and commands](teamlab/README.md), [model specification
 ### MCP experimental research
 
 Co-Scientist can discover trusted MCP tools and run TeamLab experiments from the **Experimental Research (MCP)** tab. See [setup, budgets, recovery and simulator extension](docs/mcp-research.md).
+
+## Deploy to Hugging Face
+
+Pushes to `main` run the Hugging Face Deploy workflow: lint, offline tests, startup and dependency checks, then sync to `johntango/co-scientist` and watch the Space build. GitHub repository secret `HF_TOKEN` must have write access to that Space. Optional repository variable `HF_SPACE_ID` overrides the destination.
+
+In the Space's Settings, add `OPENROUTER_API_KEY` as a **secret** for research calls. The GitHub deployment token does not provide model access. Secrets are configured separately and are never copied from local `.env` files.
+
+For a manual deployment, run **Actions → Hugging Face Deploy → Run workflow**, select `main`, and set `dry_run` to `false`. The default `true` only validates the build.
+
+The Gradio Space serves the hypothesis workflows. TeamLab experimental research additionally requires a running TeamLab API and an MCP server configuration appropriate to the hosting environment; the bundled local configuration assumes a local virtual environment and API on port 8000. See [MCP setup](docs/mcp-research.md).
