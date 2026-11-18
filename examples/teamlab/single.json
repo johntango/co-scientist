@@ -1,0 +1,83 @@
+{
+  "mode": "single",
+  "workload": {
+    "time_unit": "minutes",
+    "warmup": 100.0,
+    "observation": 500.0,
+    "arrivals": {
+      "process": "poisson",
+      "rate": 2.5,
+      "p_a": 0.5,
+      "states": [
+        {
+          "rate_multiplier": 1,
+          "p_a": 0.5,
+          "transition_rate": 0.1
+        },
+        {
+          "rate_multiplier": 2.0,
+          "p_a": 0.8,
+          "transition_rate": 0.1
+        }
+      ],
+      "initial_state": 0
+    },
+    "service_a": {
+      "distribution": "exponential",
+      "mean": 1,
+      "cv": 1
+    },
+    "service_b": null
+  },
+  "workload_id": null,
+  "seeds": [
+    11
+  ],
+  "policies": [
+    {
+      "name": "flexible_fcfs",
+      "aging_threshold": 5
+    }
+  ],
+  "workers": [
+    {
+      "id": "w1",
+      "eligibility": [
+        "A",
+        "B"
+      ],
+      "partition": "A"
+    },
+    {
+      "id": "w2",
+      "eligibility": [
+        "A",
+        "B"
+      ],
+      "partition": "A"
+    },
+    {
+      "id": "w3",
+      "eligibility": [
+        "A",
+        "B"
+      ],
+      "partition": "B"
+    },
+    {
+      "id": "w4",
+      "eligibility": [
+        "A",
+        "B"
+      ],
+      "partition": "B"
+    }
+  ],
+  "setup_delay": 0.5,
+  "max_drain": 1000,
+  "bootstrap_seed": 2026,
+  "bootstrap_samples": 2000,
+  "detailed_logs": true,
+  "research_record_id": null,
+  "sweep": {}
+}

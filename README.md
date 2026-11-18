@@ -175,3 +175,13 @@ make lint
 This is a fork of [llnl/open-ai-co-scientist](https://github.com/llnl/open-ai-co-scientist) (LLNL-CODE-2010270), whose single co-scientist cycle, interface and run history it builds on. Released under the MIT License (see `LICENSE` and `NOTICE`).
 
 The swarm design follows the tournament, evolution and meta-review of Co-Scientist (Gottweis et al., *Nature*, 2026), the routines and handoffs of OpenAI Swarm, orchestrator-worker research agents, and multi-agent debate (Du et al., 2023).
+
+## TeamLab local research sandbox
+
+This checkout also includes **TeamLab**, an independent SimPy/FastAPI sandbox for reproducible experiments on worker eligibility, task allocation, setup overhead, and scheduling. It provides a browser dashboard, versioned HTTP API, CLI, SQLite persistence, paired replication-level comparisons, and exploratory sweeps. No API keys or LLM are required.
+
+See [TeamLab installation and commands](teamlab/README.md), [model specification](docs/model.md), [API](docs/api.md), and [neutral Co-Scientist onboarding](docs/co_scientist_quickstart.md). The TeamLab dashboard uses localhost port 8000, leaving the existing Gradio application on 7860.
+
+### MCP experimental research
+
+Co-Scientist can discover trusted MCP tools and run TeamLab experiments from the **Experimental Research (MCP)** tab. See [setup, budgets, recovery and simulator extension](docs/mcp-research.md).

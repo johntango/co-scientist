@@ -1,0 +1,24 @@
+{
+  "servers": {
+    "teamlab": {
+      "transport": "stdio",
+      "command": "venv/bin/python",
+      "args": [
+        "-m",
+        "teamlab.mcp_server"
+      ],
+      "allow_tools": [
+        "describe_environment",
+        "get_experiment_schema",
+        "validate_experiment",
+        "record_prediction",
+        "generate_workload",
+        "submit_experiment",
+        "get_experiment_status",
+        "get_experiment_results",
+        "cancel_experiment",
+        "get_artifacts"
+      ]
+    }
+  }
+}

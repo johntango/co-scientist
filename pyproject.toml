@@ -14,3 +14,27 @@ extend-exclude = ["venv", ".worktree", "results"]
 # Lenient starting baseline (see docs/loop-engineering-design.md §9 Phase -1 Step 4).
 select = ["E", "F", "I"]
 ignore = ["E501"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "teamlab-research"
+version = "1.0.0"
+description = "Local reproducible team-organization research sandbox"
+requires-python = ">=3.11"
+dependencies = ["simpy==4.1.1", "fastapi==0.163.1", "pydantic==2.12.5", "uvicorn==0.54.0"]
+
+[project.optional-dependencies]
+mcp = ["mcp==1.26.0"]
+
+[project.scripts]
+teamlab = "teamlab.__main__:main"
+teamlab-mcp = "teamlab.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["teamlab*"]
+
+[tool.setuptools.package-data]
+teamlab = ["static/*", "README.md"]

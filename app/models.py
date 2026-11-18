@@ -23,6 +23,7 @@ class Hypothesis:
         self.text = text
         self.novelty_review: Optional[str] = None  # "HIGH", "MEDIUM", "LOW"
         self.feasibility_review: Optional[str] = None
+        self.experimental_evidence: List[Dict] = []
         self.elo_score: float = 1200.0  # initial Elo score
         self.review_comments: List[str] = []
         self.references: List[str] = []
@@ -37,6 +38,7 @@ class Hypothesis:
             "novelty_review": self.novelty_review,
             "feasibility_review": self.feasibility_review,
             "elo_score": self.elo_score,
+            "experimental_evidence": self.experimental_evidence,
             "review_comments": self.review_comments,
             "references": self.references,
             "is_active": self.is_active,
