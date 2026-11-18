@@ -1225,6 +1225,15 @@ def create_gradio_interface():
         # Example inputs
         gr.Examples(
             examples=[
+                [
+                    "Cybersecurity: Investigate unusual data exports from an energy analytics platform using a legitimate service identity. Propose competing hypotheses for authorized reporting, deployment errors, and account compromise; identify the logs and tests that distinguish them."
+                ],
+                [
+                    "Cybersecurity: Develop testable methods to detect compromised employee accounts from sign-in, device, and access logs. Compare indicators of credential theft with legitimate travel or role changes, and measure detection accuracy and false positives."
+                ],
+                [
+                    "Cybersecurity: Design an experiment in an isolated test environment to evaluate ransomware defenses. Compare least-privilege access, network segmentation, and immutable backups using containment time, data loss, and recovery time as outcomes."
+                ],
                 ["Develop new methods for increasing the efficiency of solar panels"],
                 ["Create novel approaches to treat Alzheimer's disease"],
                 ["Design sustainable materials for construction"],

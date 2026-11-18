@@ -58,6 +58,14 @@ def test_gradio_interface_constructs_without_network(gradio_app_module):
         for component in demo.config["components"]
         if component["type"] == "html"
     )
+    examples = next(
+        component["props"]["samples"]
+        for component in demo.config["components"]
+        if component["type"] == "dataset" and component["props"].get("label") == "Example Research Goals"
+    )
+    assert len(examples) == 13
+    assert all(row[0].startswith("Cybersecurity:") for row in examples[:3])
+    assert examples[3] == ["Develop new methods for increasing the efficiency of solar panels"]
     # The fetch failed, so the module must have fallen back to a non-empty default model list.
     assert gradio_app_module.available_models
 
